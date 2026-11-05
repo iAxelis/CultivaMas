@@ -1,0 +1,149 @@
+import { HttpStatus } from '@nestjs/common';
+import { EstadoCiclo, Prisma } from '@prisma/client';
+import { DomainError } from '../errors/domain.error';
+import { CodigoError } from '../errors/codigos-error.enum';
+
+export interface BloqueoCicloResult {
+  id: number;
+  empresaId: number;
+  estado: EstadoCiclo;
+  fechaInicio: Date;
+}
+
+/**
+ * Bloquea la fila del ciclo mediante SELECT ... FOR UPDATE en MySQL / MariaDB (Ajuste B1.a).
+ * - Utiliza el nombre de tabla mapeado: 'ciclo_produccion'.
+ * - Utiliza los nombres de columna físicos: 'empresa_id', 'deleted_at', 'fecha_inicio'.
+ * - Filtra explícitamente por empresaId del token JWT y deletedAt IS NULL.
+ * - Si no existe o no pertenece a la empresa, responde 404 RECURSO_NO_ENCONTRADO.
+ */
+interface CicloRawRow {
+  id: number;
+  empresaId?: number;
+  empresa_id?: number;
+  estado: EstadoCiclo;
+  fechaInicio?: Date;
+  fecha_inicio?: Date;
+}
+
+export async function bloquearCicloParaCaptura(
+  tx: Prisma.TransactionClient,
+  cicloId: number,
+  empresaId: number,
+): Promise<BloqueoCicloResult> {
+  const filas = await tx.$queryRaw<CicloRawRow[]>(
+    Prisma.sql`
+      SELECT id, empresaId, estado, fechaInicio
+      FROM ciclo_produccion
+      WHERE id = ${cicloId}
+        AND empresaId = ${empresaId}
+        AND deletedAt IS NULL
+      LIMIT 1
+      FOR UPDATE
+    `,
+  );
+
+  if (!filas || filas.length === 0) {
+    throw new DomainError(
+      CodigoError.RECURSO_NO_ENCONTRADO,
+      'Ciclo de producción no encontrado en su empresa (RN-068)',
+      HttpStatus.NOT_FOUND,
+    );
+  }
+
+  const fila = filas[0];
+  return {
+    id: fila.id,
+    empresaId: fila.empresaId ?? fila.empresa_id ?? empresaId,
+    estado: fila.estado,
+    fechaInicio: fila.fechaInicio ?? fila.fecha_inicio ?? new Date(),
+  };
+}
+
+export interface BalanceMasaResult {
+  kgCosechados: Prisma.Decimal;
+  kgMermaPoscosecha: Prisma.Decimal;
+  kgVendidos: Prisma.Decimal;
+  kgNetos: Prisma.Decimal;
+  kgDisponibles: Prisma.Decimal;
+  /** @deprecated Utilice kgDisponibles (alias para retrocompatibilidad) */
+  kgNetosDisponibles: Prisma.Decimal;
+}
+
+/**
+ * Calcula el balance acumulado de masa física en kilogramos dentro de la transacción (Ajuste B1.b y Hito 7).
+ * Toda la aritmética se computa estrictamente en Prisma.Decimal utilizando factorABase.
+ * - kgCosechados: sumatoria de cantidad * factorABase de cosechas activas (deletedAt IS NULL).
+ * - kgMermaPoscosecha: sumatoria de mermas con etapa != 'CAMPO' y deletedAt IS NULL.
+ * - kgVendidos: sumatoria de cantidad * factorABase de renglones de ventas activas (!= 'CANCELADA' y deletedAt IS NULL).
+ * - kgNetos = kgCosechados - kgMermaPoscosecha
+ * - kgDisponibles = kgNetos - kgVendidos
+ */
+export async function calcularBalanceMasaKg(
+  tx: Prisma.TransactionClient,
+  cicloId: number,
+): Promise<BalanceMasaResult> {
+  const [cosechas, mermas, detallesVenta] = await Promise.all([
+    tx.cosecha.findMany({
+      where: { cicloId, deletedAt: null },
+      select: {
+        cantidad: true,
+        unidad: { select: { factorABase: true } },
+      },
+    }),
+    tx.merma.findMany({
+      where: {
+        cicloId,
+        deletedAt: null,
+        etapa: { not: 'CAMPO' },
+      },
+      select: {
+        cantidad: true,
+        unidad: { select: { factorABase: true } },
+      },
+    }),
+    tx.detalleVenta.findMany({
+      where: {
+        venta: {
+          cicloId,
+          estado: { not: 'CANCELADA' },
+          deletedAt: null,
+        },
+      },
+      select: {
+        cantidad: true,
+        unidad: { select: { factorABase: true } },
+      },
+    }),
+  ]);
+
+  let kgCosechados = new Prisma.Decimal(0);
+  for (const c of cosechas) {
+    const factor = c.unidad?.factorABase ?? new Prisma.Decimal(1);
+    kgCosechados = kgCosechados.add(c.cantidad.mul(factor));
+  }
+
+  let kgMermaPoscosecha = new Prisma.Decimal(0);
+  for (const m of mermas) {
+    const factor = m.unidad?.factorABase ?? new Prisma.Decimal(1);
+    kgMermaPoscosecha = kgMermaPoscosecha.add(m.cantidad.mul(factor));
+  }
+
+  let kgVendidos = new Prisma.Decimal(0);
+  for (const dv of detallesVenta) {
+    const factor = dv.unidad?.factorABase ?? new Prisma.Decimal(1);
+    kgVendidos = kgVendidos.add(dv.cantidad.mul(factor));
+  }
+
+  const kgNetos = kgCosechados.sub(kgMermaPoscosecha);
+  const kgDisponibles = kgNetos.sub(kgVendidos);
+
+  return {
+    kgCosechados,
+    kgMermaPoscosecha,
+    kgVendidos,
+    kgNetos,
+    kgDisponibles,
+    kgNetosDisponibles: kgDisponibles,
+  };
+}

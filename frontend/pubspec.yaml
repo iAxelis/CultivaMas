@@ -1,0 +1,31 @@
+name: cultiva_plus
+description: Aplicación Flutter de rentabilidad agrícola Cultiva+.
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.7.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  provider: ^6.1.2
+  go_router: ^14.6.2
+  intl: ^0.20.2
+  flutter_svg: ^2.0.10+1
+  google_fonts: ^6.2.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+dependency_overrides:
+  path_provider_foundation: 2.4.2
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/brand-logo.svg
