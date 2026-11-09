@@ -2684,10 +2684,28 @@ class SaleDetailScreen extends StatelessWidget {
                             child: const Text('Volver'),
                           ),
                           FilledButton(
-                            onPressed: () {
-                              store.cancelSale(sale);
+                            onPressed: () async {
                               Navigator.pop(dialogContext);
-                              context.pop();
+                              try {
+                                await store.cancelSale(sale);
+                                if (!context.mounted) return;
+                                final messenger = ScaffoldMessenger.of(context);
+                                context.pop();
+                                messenger.showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      store.dataError == null
+                                          ? 'Venta cancelada en el servidor.'
+                                          : 'La venta se canceló, pero no se pudo actualizar la información: ${store.dataError}',
+                                    ),
+                                  ),
+                                );
+                              } on ApiException catch (error) {
+                                if (!context.mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text(error.message)),
+                                );
+                              }
                             },
                             child: const Text('Cancelar venta'),
                           ),

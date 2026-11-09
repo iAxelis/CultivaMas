@@ -477,6 +477,34 @@ class AppStore extends ChangeNotifier {
     }
   }
 
+  Future<Map<String, dynamic>> createResource(
+    String path, {
+    required Map<String, Object?> body,
+  }) async {
+    final result = await _backendRepository.create(path, body: body);
+    await loadWorkspace();
+    return result;
+  }
+
+  Future<Map<String, dynamic>> updateResource(
+    String path, {
+    required Map<String, Object?> body,
+  }) async {
+    final result = await _backendRepository.update(path, body: body);
+    await loadWorkspace();
+    return result;
+  }
+
+  Future<void> deleteResource(String path) async {
+    await _backendRepository.delete(path);
+    await loadWorkspace();
+  }
+
+  Future<void> cancelSale(Sale sale) async {
+    await _backendRepository.patchAction('ventas/${sale.id}/cancelar');
+    await loadWorkspace();
+  }
+
   void _clearWorkspace() {
     properties.clear();
     clients.clear();
@@ -926,22 +954,6 @@ class AppStore extends ChangeNotifier {
       '${sale.id} · \$${amount.toStringAsFixed(2)} · $method',
       'Cobro',
     );
-  }
-
-  void cancelSale(Sale sale) {
-    sale.cancelled = true;
-    auditEntries.insert(
-      0,
-      AuditEntry(
-        title: 'Venta ${sale.id} cancelada',
-        detail: 'Cancelar venta',
-        ip: '192.168.1.12',
-        date: DateTime.now(),
-        before: 'Activa',
-        after: 'Cancelada',
-      ),
-    );
-    notifyListeners();
   }
 
   void addProperty(FarmProperty property) {

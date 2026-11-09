@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
+import '../../data/api_client.dart';
 import '../../data/models.dart';
 import '../../data/store.dart';
 
@@ -30,18 +31,25 @@ class _DataFormScreenState extends State<DataFormScreen> {
   final taxController = TextEditingController(text: '0');
   final totalController = TextEditingController();
   final priceController = TextEditingController();
+  final discountController = TextEditingController(text: '0');
+  final saleTaxController = TextEditingController(text: '0');
   final cycleNameController = TextEditingController();
   final cycleDateController = TextEditingController();
   final cycleAreaController = TextEditingController();
   final cycleGoalController = TextEditingController();
+  final dateController = TextEditingController();
+  final dueDateController = TextEditingController();
+  final detailController = TextEditingController();
+  final referenceController = TextEditingController();
+  final invoiceController = TextEditingController();
   String? cycleId;
   String? selectedParcel;
-  String selectedVariety = 'Brócoli Imperial';
+  String selectedVariety = '';
   String unit = 'kg';
   String activityType = 'Aplicación foliar';
   String responsible = 'Luis Pérez';
   String expenseCategory = 'Insumos · Fertilizante';
-  String supplierId = 's1';
+  String supplierId = '';
   String linkedActivity = 'Sin actividad';
   String expenseUnit = 'pieza';
   String stage = 'POSCOSECHA';
@@ -54,6 +62,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
   String paymentMethod = 'Efectivo';
   String closeReason = 'Fin de temporada';
   bool totalMatches = true;
+  bool isSaving = false;
 
   @override
   void initState() {
@@ -72,10 +81,17 @@ class _DataFormScreenState extends State<DataFormScreen> {
     taxController.dispose();
     totalController.dispose();
     priceController.dispose();
+    discountController.dispose();
+    saleTaxController.dispose();
     cycleNameController.dispose();
     cycleDateController.dispose();
     cycleAreaController.dispose();
     cycleGoalController.dispose();
+    dateController.dispose();
+    dueDateController.dispose();
+    detailController.dispose();
+    referenceController.dispose();
+    invoiceController.dispose();
     super.dispose();
   }
 
@@ -91,7 +107,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
     final amount = _number(quantityController);
     return switch (unit) {
       'ton' => amount * 1000,
-      'caja' => amount * 18,
+      'caja' => amount * 20,
       _ => amount,
     };
   }
@@ -100,10 +116,93 @@ class _DataFormScreenState extends State<DataFormScreen> {
     final amount = _number(quantityController);
     return switch (saleUnit) {
       'ton' => amount * 1000,
-      'caja' => amount * 18,
+      'caja' => amount * 20,
       _ => amount,
     };
   }
+
+  double get saleSubtotal => _number(quantityController) * _number(priceController);
+
+  double get saleTotal =>
+      saleSubtotal - _number(discountController) + _number(saleTaxController);
+
+  String _dateValue(TextEditingController controller, {DateTime? fallback}) {
+    final value = controller.text.trim();
+    if (value.isEmpty) return _dateOnly(fallback ?? DateTime.now());
+    final isoDate = DateTime.tryParse(value);
+    if (isoDate != null) return _dateOnly(isoDate);
+    final parts = value.split('/');
+    if (parts.length == 3) {
+      final date = DateTime.tryParse('${parts[2]}-${parts[1]}-${parts[0]}');
+      if (date != null) return _dateOnly(date);
+    }
+    throw const ApiException('La fecha debe tener formato dd/mm/aaaa.');
+  }
+
+  String _dateOnly(DateTime value) =>
+      '${value.year.toString().padLeft(4, '0')}-'
+      '${value.month.toString().padLeft(2, '0')}-'
+      '${value.day.toString().padLeft(2, '0')}';
+
+  int _numericId(String? value, String label) {
+    final id = int.tryParse(value ?? '');
+    if (id == null) throw ApiException('Selecciona $label válido.');
+    return id;
+  }
+
+  Map<String, dynamic> _rowByName(
+    List<Map<String, dynamic>> rows,
+    String name,
+    String label,
+  ) {
+    for (final row in rows) {
+      if ('${row['nombre']}'.toLowerCase() == name.toLowerCase()) return row;
+    }
+    throw ApiException('Selecciona $label del catálogo vigente.');
+  }
+
+  List<Map<String, dynamic>> _expenseCategoryRows(AppStore store) {
+    final rows = <Map<String, dynamic>>[];
+    for (final category in store.catalogs['expenseCategories'] ?? []) {
+      rows.add(category);
+      final children = category['subcategorias'];
+      if (children is List) {
+        rows.addAll(
+          children.whereType<Map>().map(Map<String, dynamic>.from),
+        );
+      }
+    }
+    return rows;
+  }
+
+  int _unitId(AppStore store, String label) {
+    final key = label.toLowerCase();
+    final units = store.catalogs['units'] ?? [];
+    for (final row in units) {
+      final code = '${row['codigo']}'.toLowerCase();
+      final name = '${row['nombre']}'.toLowerCase();
+      final matches = switch (key) {
+        'kg' => code == 'kg' || name.contains('kilogram'),
+        'ton' => code.contains('ton') || name.contains('tonelada'),
+        'caja' => code.contains('caja') || name.contains('caja'),
+        'pieza' => code.contains('pieza') || name.contains('pieza'),
+        'litro' => code.contains('litro') || name.contains('litro'),
+        'hora' => code.contains('hora') || name.contains('hora'),
+        _ => code == key || name == key,
+      };
+      if (matches) return _numericId('${row['id']}', 'unidad');
+    }
+    throw ApiException('La unidad "$label" no está en el catálogo vigente.');
+  }
+
+  String _qualityCode(String value) => switch (value.toLowerCase()) {
+    'extra' => 'EXTRA',
+    'primera' => 'PRIMERA',
+    'segunda' => 'SEGUNDA',
+    'tercera' => 'TERCERA',
+    'industria' || 'industrial' => 'INDUSTRIAL',
+    _ => throw const ApiException('Selecciona una calidad válida.'),
+  };
 
   void _recalculate() {
     if (!mounted) return;
@@ -128,22 +227,78 @@ class _DataFormScreenState extends State<DataFormScreen> {
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
-    cycleId ??= store.cycles
-        .firstWhere((cycle) => cycle.status == CycleStatus.activo)
-        .id;
-    if (widget.type == 'cycle' && selectedParcel == null) {
-      final occupied = store.cycles
-          .where((cycle) => cycle.status == CycleStatus.activo)
-          .map((cycle) => cycle.parcel)
-          .toSet();
-      selectedParcel = ['Parcela 1', 'Parcela 2', 'Parcela 3', 'Parcela 4', 'Parcela 5']
-          .firstWhere((parcel) => !occupied.contains(parcel));
+    if (cycleId == null && widget.type != 'cycle' && store.cycles.isNotEmpty) {
+      final eligible = store.cycles.where(
+        (cycle) =>
+            cycle.status == CycleStatus.activo ||
+            cycle.status == CycleStatus.suspendido,
+      );
+      if (eligible.isNotEmpty) cycleId = eligible.first.id;
+    }
+    final parcels = store.properties.expand((property) => property.parcels);
+    final occupiedParcelIds = store.cycles
+        .where((cycle) => cycle.status == CycleStatus.activo)
+        .map((cycle) => cycle.parcelId)
+        .whereType<String>()
+        .toSet();
+    final availableParcels = parcels
+        .where((parcel) => !occupiedParcelIds.contains(parcel.id))
+        .toList();
+    if (widget.type == 'cycle' &&
+        selectedParcel == null &&
+        availableParcels.isNotEmpty) {
+      selectedParcel = availableParcels.first.id;
+    }
+    final varieties = store.catalogs['varieties'] ?? [];
+    final varietyNames = varieties.map((row) => '${row['nombre']}').toList();
+    if (widget.type == 'cycle' &&
+        varietyNames.isNotEmpty &&
+        !varietyNames.contains(selectedVariety)) {
+      selectedVariety = varietyNames.first;
+    }
+    final hasEligibleCycle = store.cycles.any(
+      (cycle) =>
+          cycle.status == CycleStatus.activo ||
+          cycle.status == CycleStatus.suspendido,
+    );
+    if (widget.type != 'cycle' &&
+            widget.type != 'payment' &&
+            !hasEligibleCycle ||
+        widget.type == 'cycle' &&
+            (store.properties.isEmpty || varieties.isEmpty)) {
+      final noCycles =
+          widget.type != 'cycle' &&
+          widget.type != 'payment' &&
+          !hasEligibleCycle;
+      return Scaffold(
+        appBar: AppBar(title: Text(title)),
+        body: EmptyState(
+          title: noCycles ? 'No hay ciclos disponibles' : 'Faltan datos de catálogo',
+          message: noCycles
+              ? 'Primero debe existir un ciclo activo para registrar movimientos.'
+              : 'Configura al menos un predio, una parcela y una variedad antes de crear ciclos.',
+          actionLabel: 'Volver',
+          onAction: () => context.pop(),
+        ),
+      );
+    }
+    if (widget.type == 'sale' &&
+        store.clients.every((client) => !client.active)) {
+      return Scaffold(
+        appBar: AppBar(title: Text(title)),
+        body: EmptyState(
+          title: 'No hay clientes activos',
+          message: 'Agrega un cliente antes de registrar una venta.',
+          actionLabel: 'Volver',
+          onAction: () => context.pop(),
+        ),
+      );
     }
     final locked = cycleId != null &&
         widget.type != 'payment' &&
         (store.cycle(cycleId!).status == CycleStatus.finalizado ||
             store.cycle(cycleId!).status == CycleStatus.cerrado);
-    final valid = _canSave(store) && !locked;
+    final valid = _canSave(store) && !locked && !isSaving;
     return Scaffold(
       appBar: AppBar(title: Text(title)),
       bottomNavigationBar: SafeArea(
@@ -151,7 +306,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         child: FilledButton.icon(
           onPressed: valid ? () => _save(store) : null,
           icon: const Icon(Icons.check_rounded),
-          label: const Text('Guardar'),
+          label: Text(isSaving ? 'Guardando…' : 'Guardar'),
         ),
       ),
       body: Form(
@@ -187,32 +342,45 @@ class _DataFormScreenState extends State<DataFormScreen> {
   bool _canSave(AppStore store) {
     if (widget.type == 'expense') return totalMatches && expectedTotal > 0;
     if (widget.type == 'sale') {
+      if (cycleId == null) return false;
       final cycle = store.cycle(cycleId!);
       return _number(quantityController) > 0 &&
           saleConvertedKg <= store.availableKg(cycle) &&
-          _number(priceController) > 0;
+          _number(priceController) > 0 &&
+          _number(discountController) >= 0 &&
+          _number(discountController) <= saleSubtotal &&
+          _number(saleTaxController) >= 0 &&
+          saleTotal > 0;
     }
-    if (widget.type == 'harvest' || widget.type == 'loss') return convertedKg > 0;
+    if (widget.type == 'harvest' || widget.type == 'loss') {
+      return cycleId != null && convertedKg > 0;
+    }
     if (widget.type == 'cycle') {
-      const parcelAreas = {
-        'Parcela 1': 1.8,
-        'Parcela 2': 4.2,
-        'Parcela 3': 2.5,
-        'Parcela 4': 3.0,
-        'Parcela 5': 2.2,
-      };
+      final parcel = _firstOrNull(
+        store.properties
+            .expand((property) => property.parcels)
+            .where((item) => item.id == selectedParcel),
+      );
       final plantedArea = double.tryParse(cycleAreaController.text) ?? 0;
-      return selectedParcel != null &&
+      return parcel != null &&
           cycleDateController.text.isNotEmpty &&
           plantedArea > 0 &&
-          plantedArea <= parcelAreas[selectedParcel]!;
+          plantedArea <= parcel.area &&
+          _number(cycleGoalController) > 0;
     }
     if (widget.type == 'payment') {
-      final sale = store.sales.firstWhere((item) => item.id == widget.saleId);
+      final matches = store.sales.where((item) => item.id == widget.saleId);
+      if (matches.isEmpty) return false;
+      final sale = matches.first;
       final amount = _number(totalController);
       return amount > 0 && amount <= sale.total - sale.paid;
     }
-    return true;
+    if (widget.type == 'activity') {
+      return cycleId != null &&
+          (quantityController.text.trim().isEmpty ||
+              _number(quantityController) >= .01);
+    }
+    return cycleId != null;
   }
 
   List<Widget> _fields(AppStore store) {
@@ -249,6 +417,23 @@ class _DataFormScreenState extends State<DataFormScreen> {
   }
 
   List<Widget> _activityFields(AppStore store) {
+    final activityRows = store.catalogs['activityTypes'] ?? [];
+    final activityNames = activityRows.isEmpty && !store.isAuthenticated
+        ? const ['Aplicación foliar', 'Riego', 'Deshierbe']
+        : activityRows.map((row) => '${row['nombre']}').toList();
+    if (activityNames.isNotEmpty && !activityNames.contains(activityType)) {
+      activityType = activityNames.first;
+    }
+    final responsibleUsers = [
+      ...store.users,
+      if (store.users.every((user) => user.email != store.currentUser.email))
+        store.currentUser,
+    ];
+    final responsibleNames = responsibleUsers.map((user) => user.name).toList();
+    if (responsibleNames.isNotEmpty &&
+        !responsibleNames.contains(responsible)) {
+      responsible = store.currentUser.name;
+    }
     return [
       _cycleSelector(store),
       const SizedBox(height: 20),
@@ -256,11 +441,12 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Actividad',
         help: 'Selecciona la labor realizada.',
         child: DropdownButtonFormField<String>(
-          initialValue: activityType,
-          items: const [
-            DropdownMenuItem(value: 'Aplicación foliar', child: Text('Aplicación foliar')),
-            DropdownMenuItem(value: 'Riego', child: Text('Riego')),
-            DropdownMenuItem(value: 'Deshierbe', child: Text('Deshierbe')),
+          initialValue: activityNames.contains(activityType)
+              ? activityType
+              : null,
+          items: [
+            for (final name in activityNames)
+              DropdownMenuItem(value: name, child: Text(name)),
           ],
           onChanged: (value) {
             if (value != null) setState(() => activityType = value);
@@ -273,9 +459,9 @@ class _DataFormScreenState extends State<DataFormScreen> {
         help: 'Usuario asignado, opcional.',
         child: DropdownButtonFormField<String>(
           initialValue: responsible,
-          items: const [
-            DropdownMenuItem(value: 'Luis Pérez', child: Text('Luis Pérez')),
-            DropdownMenuItem(value: 'Ramón Ortega', child: Text('Ramón Ortega')),
+          items: [
+            for (final userName in responsibleNames)
+              DropdownMenuItem(value: userName, child: Text(userName)),
           ],
           onChanged: (value) {
             if (value != null) setState(() => responsible = value);
@@ -287,6 +473,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Fecha',
         help: 'Fecha de ejecución de la labor.',
         child: TextFormField(
+          controller: dateController,
           decoration: const InputDecoration(
             hintText: 'dd/mm/aaaa',
             prefixIcon: Icon(Icons.calendar_today_outlined),
@@ -296,8 +483,9 @@ class _DataFormScreenState extends State<DataFormScreen> {
       const SizedBox(height: 20),
       FieldBlock(
         label: 'Horas trabajadas',
-        help: 'Opcional, debe ser mayor o igual a cero.',
+        help: 'Opcional; si se captura, debe ser mayor que cero.',
         child: TextFormField(
+          controller: quantityController,
           keyboardType: TextInputType.number,
           decoration: const InputDecoration(suffixText: 'h', hintText: '0'),
         ),
@@ -307,6 +495,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Descripción',
         help: 'Opcional. Agrega dosis, clima u observaciones.',
         child: TextFormField(
+          controller: detailController,
           maxLines: 3,
           decoration: const InputDecoration(hintText: 'Escribe una observación'),
         ),
@@ -315,6 +504,43 @@ class _DataFormScreenState extends State<DataFormScreen> {
   }
 
   List<Widget> _expenseFields(AppStore store) {
+    final categoryRows = _expenseCategoryRows(store);
+    final categories = categoryRows.isEmpty && !store.isAuthenticated
+        ? const ['Insumos · Fertilizante', 'Mano de obra']
+        : categoryRows.map((row) => '${row['nombre']}').toList();
+    if (expenseCategory.isEmpty && categories.isNotEmpty) {
+      expenseCategory = categories.first;
+    }
+    if (categories.isNotEmpty && !categories.contains(expenseCategory)) {
+      expenseCategory = categories.first;
+    }
+    final activeSuppliers = store.suppliers
+        .where((supplier) => supplier.active)
+        .toList();
+    if (activeSuppliers.isNotEmpty &&
+        !activeSuppliers.any((supplier) => supplier.id == supplierId)) {
+      supplierId = activeSuppliers.first.id;
+    }
+    final activityRecords = store.records
+        .where((record) =>
+            record.kind == 'Actividad' &&
+            (cycleId == null || record.cycleId == cycleId))
+        .toList();
+    final expenseUnits = store.isAuthenticated
+        ? (store.catalogs['units'] ?? [])
+            .where((row) => const {
+                  'PESO',
+                  'VOLUMEN',
+                  'AREA',
+                  'TIEMPO',
+                  'CONTEO',
+                }.contains(row['tipo']))
+            .map((row) => '${row['nombre']}')
+            .toList()
+        : const ['pieza', 'kg', 'litro', 'hora'];
+    if (expenseUnits.isNotEmpty && !expenseUnits.contains(expenseUnit)) {
+      expenseUnit = expenseUnits.first;
+    }
     return [
       _cycleSelector(store),
       const SizedBox(height: 20),
@@ -322,13 +548,12 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Categoría',
         help: 'Se usa para el desglose de costos.',
         child: DropdownButtonFormField<String>(
-          initialValue: expenseCategory,
-          items: const [
-            DropdownMenuItem(
-              value: 'Insumos · Fertilizante',
-              child: Text('Insumos · Fertilizante'),
-            ),
-            DropdownMenuItem(value: 'Mano de obra', child: Text('Mano de obra')),
+          initialValue: categories.contains(expenseCategory)
+              ? expenseCategory
+              : null,
+          items: [
+            for (final category in categories)
+              DropdownMenuItem(value: category, child: Text(category)),
           ],
           onChanged: (value) {
             if (value != null) setState(() => expenseCategory = value);
@@ -340,9 +565,11 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Proveedor',
         help: 'CAPTURISTA puede seleccionar proveedores activos sin abrir el catálogo.',
         child: DropdownButtonFormField<String>(
-          initialValue: supplierId,
+          initialValue: activeSuppliers.any((item) => item.id == supplierId)
+              ? supplierId
+              : null,
           items: [
-            for (final supplier in store.suppliers.where((item) => item.active))
+            for (final supplier in activeSuppliers)
               DropdownMenuItem(
                 value: supplier.id,
                 child: Text(supplier.name),
@@ -359,10 +586,16 @@ class _DataFormScreenState extends State<DataFormScreen> {
         help: 'Opcional; debe pertenecer al mismo ciclo.',
         child: DropdownButtonFormField<String>(
           initialValue: linkedActivity,
-          items: const [
-            DropdownMenuItem(value: 'Sin actividad', child: Text('Sin actividad')),
-            DropdownMenuItem(value: 'Aplicación foliar', child: Text('Aplicación foliar')),
-            DropdownMenuItem(value: 'Cosecha', child: Text('Cosecha')),
+          items: [
+            const DropdownMenuItem(
+              value: 'Sin actividad',
+              child: Text('Sin actividad'),
+            ),
+            for (final record in activityRecords)
+              DropdownMenuItem(
+                value: record.id ?? record.title,
+                child: Text(record.title),
+              ),
           ],
           onChanged: (value) {
             if (value != null) setState(() => linkedActivity = value);
@@ -374,12 +607,12 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Unidad de medida',
         help: 'Opcional.',
         child: DropdownButtonFormField<String>(
-          initialValue: expenseUnit,
-          items: const [
-            DropdownMenuItem(value: 'pieza', child: Text('pieza')),
-            DropdownMenuItem(value: 'kg', child: Text('kg')),
-            DropdownMenuItem(value: 'litro', child: Text('litro')),
-            DropdownMenuItem(value: 'hora', child: Text('hora')),
+          initialValue: expenseUnits.contains(expenseUnit)
+              ? expenseUnit
+              : null,
+          items: [
+            for (final item in expenseUnits)
+              DropdownMenuItem(value: item, child: Text(item)),
           ],
           onChanged: (value) {
             if (value != null) setState(() => expenseUnit = value);
@@ -391,6 +624,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Fecha',
         help: 'Fecha del egreso.',
         child: TextFormField(
+          controller: dateController,
           decoration: const InputDecoration(
             hintText: 'dd/mm/aaaa',
             prefixIcon: Icon(Icons.calendar_today_outlined),
@@ -402,6 +636,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Descripción / concepto',
         help: 'Opcional, máximo 500 caracteres.',
         child: TextFormField(
+          controller: detailController,
           maxLines: 2,
           decoration: const InputDecoration(hintText: 'Concepto del gasto'),
         ),
@@ -483,6 +718,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Número de comprobante',
         help: 'Opcional, máximo 60 caracteres.',
         child: TextFormField(
+          controller: referenceController,
           decoration: const InputDecoration(hintText: 'F-204'),
         ),
       ),
@@ -497,6 +733,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Fecha',
         help: 'Fecha del evento de recolección.',
         child: TextFormField(
+          controller: dateController,
           decoration: const InputDecoration(
             hintText: 'dd/mm/aaaa',
             prefixIcon: Icon(Icons.calendar_today_outlined),
@@ -560,6 +797,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Observaciones',
         help: 'Opcional, máximo 500 caracteres.',
         child: TextFormField(
+          controller: detailController,
           maxLines: 2,
           decoration: const InputDecoration(hintText: 'Notas de calidad'),
         ),
@@ -568,6 +806,27 @@ class _DataFormScreenState extends State<DataFormScreen> {
   }
 
   List<Widget> _lossFields(AppStore store) {
+    final lossReasons = store.catalogs['lossReasons'] ?? [];
+    final lossReasonNames = lossReasons.isEmpty && !store.isAuthenticated
+        ? const ['Daño mecánico', 'Plaga', 'Calidad']
+        : lossReasons.map((row) => '${row['nombre']}').toList();
+    if (lossReasonNames.isNotEmpty &&
+        !lossReasonNames.contains(lossReason)) {
+      lossReason = lossReasonNames.first;
+    }
+    final harvestRecords = store.records
+        .where((record) =>
+            record.kind == 'Cosecha' &&
+            (cycleId == null || record.cycleId == cycleId))
+        .toList();
+    final harvestIds = harvestRecords
+        .where((record) => record.id != null)
+        .map((record) => record.id!)
+        .toSet();
+    if (lossOrigin != 'Sin cosecha específica' &&
+        !harvestIds.contains(lossOrigin)) {
+      lossOrigin = 'Sin cosecha específica';
+    }
     return [
       _cycleSelector(store),
       const SizedBox(height: 20),
@@ -600,15 +859,17 @@ class _DataFormScreenState extends State<DataFormScreen> {
         help: 'Opcional, debe pertenecer al mismo ciclo.',
         child: DropdownButtonFormField<String>(
           initialValue: lossOrigin,
-          items: const [
-            DropdownMenuItem(
+          items: [
+            const DropdownMenuItem(
               value: 'Sin cosecha específica',
               child: Text('Sin cosecha específica'),
             ),
-            DropdownMenuItem(
-              value: 'Cosecha 12 jun',
-              child: Text('Cosecha 12 jun · 1,250 kg'),
-            ),
+            for (final record in harvestRecords)
+              if (record.id != null)
+                DropdownMenuItem(
+                  value: record.id,
+                  child: Text(record.title),
+                ),
           ],
           onChanged: (value) {
             if (value != null) setState(() => lossOrigin = value);
@@ -624,7 +885,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
           items: const [
             DropdownMenuItem(value: 'kg', child: Text('kg')),
             DropdownMenuItem(value: 'ton', child: Text('ton')),
-            DropdownMenuItem(value: 'caja', child: Text('caja 18 kg')),
+            DropdownMenuItem(value: 'caja', child: Text('caja 20 kg')),
           ],
           onChanged: (value) => setState(() => unit = value!),
         ),
@@ -634,6 +895,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Fecha',
         help: 'Fecha de la merma.',
         child: TextFormField(
+          controller: dateController,
           decoration: const InputDecoration(
             hintText: 'dd/mm/aaaa',
             prefixIcon: Icon(Icons.calendar_today_outlined),
@@ -655,6 +917,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Observaciones',
         help: 'Opcional, máximo 500 caracteres.',
         child: TextFormField(
+          controller: detailController,
           maxLines: 2,
           decoration: const InputDecoration(hintText: 'Notas de la merma'),
         ),
@@ -665,10 +928,9 @@ class _DataFormScreenState extends State<DataFormScreen> {
         help: 'Ayuda a detectar patrones de pérdida.',
         child: DropdownButtonFormField<String>(
           initialValue: lossReason,
-          items: const [
-            DropdownMenuItem(value: 'Daño mecánico', child: Text('Daño mecánico')),
-            DropdownMenuItem(value: 'Plaga', child: Text('Plaga')),
-            DropdownMenuItem(value: 'Calidad', child: Text('Fuera de calidad')),
+          items: [
+            for (final reason in lossReasonNames)
+              DropdownMenuItem(value: reason, child: Text(reason)),
           ],
           onChanged: (value) {
             if (value != null) setState(() => lossReason = value);
@@ -683,6 +945,23 @@ class _DataFormScreenState extends State<DataFormScreen> {
     final available = store.availableKg(cycle);
     final requested = saleConvertedKg;
     final exceeded = requested > available;
+    final activeClients = store.clients
+        .where((client) => client.active)
+        .toList();
+    if (activeClients.isNotEmpty &&
+        !activeClients.any((client) => client.name == saleClient)) {
+      saleClient = activeClients.first.name;
+    }
+    final harvestRecords = store.records
+        .where((record) =>
+            record.kind == 'Cosecha' &&
+            record.cycleId == cycleId &&
+            record.id != null)
+        .toList();
+    if (saleOrigin != 'Sin origen específico' &&
+        harvestRecords.every((record) => record.id != saleOrigin)) {
+      saleOrigin = 'Sin origen específico';
+    }
     return [
       _cycleSelector(store),
       const SizedBox(height: 12),
@@ -706,17 +985,12 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Cliente',
         help: 'Selecciona quién recibe la venta.',
         child: DropdownButtonFormField<String>(
-          initialValue: saleClient,
-          items: const [
-            DropdownMenuItem(value: 'Central de Abastos', child: Text('Central de Abastos')),
-            DropdownMenuItem(
-              value: 'Restaurantes del Valle',
-              child: Text('Restaurantes del Valle'),
-            ),
-            DropdownMenuItem(
-              value: 'Mercado Orgánico',
-              child: Text('Mercado Orgánico'),
-            ),
+          initialValue: activeClients.any((client) => client.name == saleClient)
+              ? saleClient
+              : null,
+          items: [
+            for (final client in activeClients)
+              DropdownMenuItem(value: client.name, child: Text(client.name)),
           ],
           onChanged: (value) {
             if (value != null) setState(() => saleClient = value);
@@ -728,6 +1002,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Fecha',
         help: 'Fecha de la operación comercial.',
         child: TextFormField(
+          controller: dateController,
           decoration: const InputDecoration(
             hintText: 'dd/mm/aaaa',
             prefixIcon: Icon(Icons.calendar_today_outlined),
@@ -742,6 +1017,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
               label: 'Número de factura',
               help: 'Opcional.',
               child: TextFormField(
+                controller: invoiceController,
                 decoration: const InputDecoration(hintText: 'FAC-1043'),
               ),
             ),
@@ -752,6 +1028,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
               label: 'Fecha límite',
               help: 'Opcional.',
               child: TextFormField(
+                controller: dueDateController,
                 decoration: const InputDecoration(hintText: 'dd/mm/aaaa'),
               ),
             ),
@@ -764,8 +1041,10 @@ class _DataFormScreenState extends State<DataFormScreen> {
           Expanded(
             child: FieldBlock(
               label: 'Descuento',
-              help: 'Por defecto 0.',
+              help: 'No puede superar el subtotal.',
               child: TextFormField(
+                controller: discountController,
+                onChanged: (_) => setState(() {}),
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 decoration: const InputDecoration(prefixText: '\$ ', hintText: '0.00'),
               ),
@@ -775,8 +1054,10 @@ class _DataFormScreenState extends State<DataFormScreen> {
           Expanded(
             child: FieldBlock(
               label: 'Impuesto',
-              help: 'Por defecto 0.',
+              help: 'Impuesto total trasladado.',
               child: TextFormField(
+                controller: saleTaxController,
+                onChanged: (_) => setState(() {}),
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 decoration: const InputDecoration(prefixText: '\$ ', hintText: '0.00'),
               ),
@@ -795,15 +1076,16 @@ class _DataFormScreenState extends State<DataFormScreen> {
               DropdownButtonFormField<String>(
                 initialValue: saleOrigin,
                 decoration: const InputDecoration(labelText: 'Cosecha de origen'),
-                items: const [
-                  DropdownMenuItem(
+                items: [
+                  const DropdownMenuItem(
                     value: 'Sin origen específico',
                     child: Text('Sin origen específico'),
                   ),
-                  DropdownMenuItem(
-                    value: 'Cosecha 12 jun',
-                    child: Text('Cosecha 12 jun · 1,250 kg'),
-                  ),
+                  for (final record in harvestRecords)
+                    DropdownMenuItem(
+                      value: record.id,
+                      child: Text(record.title),
+                    ),
                 ],
                 onChanged: (value) {
                   if (value != null) setState(() => saleOrigin = value);
@@ -816,7 +1098,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
                 items: const [
                   DropdownMenuItem(value: 'kg', child: Text('kg')),
                   DropdownMenuItem(value: 'ton', child: Text('ton')),
-                  DropdownMenuItem(value: 'caja', child: Text('caja 18 kg')),
+                  DropdownMenuItem(value: 'caja', child: Text('caja 20 kg')),
                 ],
                 onChanged: (value) {
                   if (value != null) setState(() => saleUnit = value);
@@ -844,7 +1126,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
                       decoration: InputDecoration(
                         labelText: 'Cantidad',
-                        suffixText: saleUnit == 'caja' ? 'caja 18 kg' : saleUnit,
+                        suffixText: saleUnit == 'caja' ? 'caja 20 kg' : saleUnit,
                         errorText: exceeded ? 'Supera el disponible' : null,
                       ),
                     ),
@@ -866,11 +1148,9 @@ class _DataFormScreenState extends State<DataFormScreen> {
               const SizedBox(height: 12),
               Row(
                 children: [
-                  const Expanded(child: Text('Subtotal')),
+                  const Expanded(child: Text('Total')),
                   Text(
-                    moneyExact.format(
-                      _number(quantityController) * _number(priceController),
-                    ),
+                    moneyExact.format(saleTotal),
                     style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
                 ],
@@ -891,6 +1171,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Notas',
         help: 'Opcional, máximo 500 caracteres.',
         child: TextFormField(
+          controller: detailController,
           maxLines: 2,
           decoration: const InputDecoration(hintText: 'Condiciones de la venta'),
         ),
@@ -922,6 +1203,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Fecha',
         help: 'Fecha de recepción del pago.',
         child: TextFormField(
+          controller: dateController,
           decoration: const InputDecoration(
             hintText: 'dd/mm/aaaa',
             prefixIcon: Icon(Icons.calendar_today_outlined),
@@ -962,6 +1244,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Referencia',
         help: 'Opcional, por ejemplo autorización o SPEI.',
         child: TextFormField(
+          controller: referenceController,
           decoration: const InputDecoration(hintText: 'Referencia'),
         ),
       ),
@@ -969,19 +1252,19 @@ class _DataFormScreenState extends State<DataFormScreen> {
   }
 
   List<Widget> _cycleFields(AppStore store) {
-    const parcels = ['Parcela 1', 'Parcela 2', 'Parcela 3', 'Parcela 4', 'Parcela 5'];
-    const parcelAreas = {
-      'Parcela 1': 1.8,
-      'Parcela 2': 4.2,
-      'Parcela 3': 2.5,
-      'Parcela 4': 3.0,
-      'Parcela 5': 2.2,
-    };
+    final parcels = store.properties.expand((property) => property.parcels);
     final occupied = store.cycles
         .where((cycle) => cycle.status == CycleStatus.activo)
-        .map((cycle) => cycle.parcel)
+        .map((cycle) => cycle.parcelId)
+        .whereType<String>()
         .toSet();
-    final available = parcels.where((parcel) => !occupied.contains(parcel)).toList();
+    final available = parcels
+        .where((parcel) => !occupied.contains(parcel.id))
+        .toList();
+    final varieties = store.catalogs['varieties'] ?? [];
+    final selectedParcelArea = _firstOrNull(
+      available.where((parcel) => parcel.id == selectedParcel),
+    )?.area;
     return [
       const InfoBanner(
         text: 'Las parcelas con otro ciclo activo se excluyen automáticamente.',
@@ -996,7 +1279,10 @@ class _DataFormScreenState extends State<DataFormScreen> {
           initialValue: selectedParcel,
           items: [
             for (final parcel in available)
-              DropdownMenuItem(value: parcel, child: Text(parcel)),
+              DropdownMenuItem(
+                value: parcel.id,
+                child: Text(parcel.name),
+              ),
           ],
           onChanged: (value) => setState(() => selectedParcel = value),
         ),
@@ -1007,10 +1293,12 @@ class _DataFormScreenState extends State<DataFormScreen> {
         help: 'Selecciona la variedad activa del catálogo.',
         child: DropdownButtonFormField<String>(
           initialValue: selectedVariety,
-          items: const [
-            DropdownMenuItem(value: 'Brócoli Imperial', child: Text('Brócoli Imperial')),
-            DropdownMenuItem(value: 'Maíz H-48', child: Text('Maíz H-48')),
-            DropdownMenuItem(value: 'Tomate Saladette', child: Text('Tomate Saladette')),
+          items: [
+            for (final variety in varieties)
+              DropdownMenuItem(
+                value: '${variety['nombre']}',
+                child: Text('${variety['nombre']}'),
+              ),
           ],
           onChanged: (value) => setState(() => selectedVariety = value!),
         ),
@@ -1048,9 +1336,10 @@ class _DataFormScreenState extends State<DataFormScreen> {
           decoration: InputDecoration(
             suffixText: 'ha',
             hintText: '0.00',
-            errorText: (double.tryParse(cycleAreaController.text) ?? 0) >
-                    parcelAreas[selectedParcel]!
-                ? 'Supera ${parcelAreas[selectedParcel]!.toStringAsFixed(2)} ha'
+            errorText: selectedParcelArea != null &&
+                    (double.tryParse(cycleAreaController.text) ?? 0) >
+                        selectedParcelArea
+                ? 'Supera ${selectedParcelArea.toStringAsFixed(2)} ha'
                 : null,
           ),
         ),
@@ -1111,91 +1400,226 @@ class _DataFormScreenState extends State<DataFormScreen> {
     ];
   }
 
-  void _save(AppStore store) {
-    final cycle = cycleId == null ? null : store.cycle(cycleId!);
-    switch (widget.type) {
-      case 'expense':
-        final supplier = store.suppliers.firstWhere(
-          (item) => item.id == supplierId,
-        );
-        store.addExpense(
-          cycle!,
-          expectedTotal,
-          category: expenseCategory,
-          supplier: supplier.name,
-          activity: linkedActivity,
-          unit: expenseUnit,
-        );
-        break;
-      case 'harvest':
-        store.addHarvest(cycle!, convertedKg, quality: quality);
-        break;
-      case 'loss':
-        store.addRecord(
-          'Merma registrada',
-          '${cycle!.parcel} · ${quantity.format(convertedKg)} kg · '
-              '$stage · $lossReason · $lossOrigin',
-          'Merma',
-          cycleId: cycle.id,
-        );
-        break;
-      case 'sale':
-        store.addSale(
-          cycle!,
-          saleConvertedKg,
-          _number(quantityController) * _number(priceController),
-          client: saleClient,
-          detail: '$quality · $saleOrigin',
-        );
-        break;
-      case 'payment':
-        final sale = store.sales.firstWhere((item) => item.id == widget.saleId);
-        store.addPayment(
-          sale,
-          _number(totalController),
-          method: paymentMethod,
-        );
-        break;
-      case 'cycle':
-        store.addCycle(
-          FarmCycle(
-            id: 'cycle-${store.cycles.length + 1}',
-            parcel: selectedParcel!,
-            crop: cycleNameController.text.isEmpty
-                ? selectedVariety
-                : cycleNameController.text,
-            status: CycleStatus.planificado,
-            area: double.parse(cycleAreaController.text),
-            cost: 0,
-            income: 0,
-            harvestedKg: 0,
-            goalKg: double.tryParse(cycleGoalController.text) ?? 0,
+  Future<void> _save(AppStore store) async {
+    if (isSaving) return;
+    setState(() => isSaving = true);
+    try {
+      final selectedCycleId = cycleId;
+      final cycleNumericId = selectedCycleId == null
+          ? null
+          : _numericId(selectedCycleId, 'ciclo');
+      switch (widget.type) {
+        case 'activity':
+          final activityTypeRow = _rowByName(
+            store.catalogs['activityTypes'] ?? [],
+            activityType,
+            'un tipo de actividad',
+          );
+          final user = _firstOrNull(
+            store.users.where((item) => item.name == responsible),
+          );
+          final responsibleId = user?.id ?? store.currentUser.id;
+          await store.createResource(
+            'actividades',
+            body: {
+              'cicloId': cycleNumericId,
+              'tipoActividadId':
+                  _numericId('${activityTypeRow['id']}', 'tipo de actividad'),
+              if (responsibleId != null)
+                'responsableId': _numericId(responsibleId, 'responsable'),
+              'fecha': _dateValue(dateController),
+              if (quantityController.text.trim().isNotEmpty)
+                'horasTrabajadas': _number(quantityController),
+              'descripcion': detailController.text.trim(),
+            },
+          );
+          break;
+        case 'expense':
+          final category = _rowByName(
+            _expenseCategoryRows(store),
+            expenseCategory,
+            'una categoría de gasto',
+          );
+          await store.createResource(
+            'gastos',
+            body: {
+              'cicloId': cycleNumericId,
+              'categoriaId': _numericId('${category['id']}', 'categoría'),
+              'cantidad': _number(quantityController).toString(),
+              'costoUnitario': _number(unitCostController).toString(),
+              'impuesto': _number(taxController).toString(),
+              'total': expectedTotal.toStringAsFixed(2),
+              'unidadId': _unitId(store, expenseUnit),
+              'fecha': _dateValue(dateController),
+              'descripcion': detailController.text.trim(),
+              if (supplierId.isNotEmpty)
+                'proveedorId': _numericId(supplierId, 'proveedor'),
+              if (linkedActivity != 'Sin actividad')
+                'actividadId': _numericId(linkedActivity, 'actividad'),
+              if (referenceController.text.trim().isNotEmpty)
+                'numeroComprobante': referenceController.text.trim(),
+            },
+          );
+          break;
+        case 'harvest':
+          await store.createResource(
+            'cosechas',
+            body: {
+              'cicloId': cycleNumericId,
+              'cantidad': _number(quantityController).toString(),
+              'unidadId': _unitId(store, unit),
+              'calidad': _qualityCode(quality),
+              'fecha': _dateValue(dateController),
+              if (detailController.text.trim().isNotEmpty)
+                'observaciones': detailController.text.trim(),
+            },
+          );
+          break;
+        case 'loss':
+          final reason = _rowByName(
+            store.catalogs['lossReasons'] ?? [],
+            lossReason,
+            'un motivo de merma',
+          );
+          await store.createResource(
+            'mermas',
+            body: {
+              'cicloId': cycleNumericId,
+              'cantidad': _number(quantityController).toString(),
+              'unidadId': _unitId(store, unit),
+              'motivoId': _numericId('${reason['id']}', 'motivo'),
+              'etapa': stage,
+              'fecha': _dateValue(dateController),
+              if (lossOrigin != 'Sin cosecha específica')
+                'cosechaId': _numericId(lossOrigin, 'cosecha'),
+              if (detailController.text.trim().isNotEmpty)
+                'observaciones': detailController.text.trim(),
+            },
+          );
+          break;
+        case 'sale':
+          final client = store.clients.firstWhere(
+            (item) => item.name == saleClient && item.active,
+            orElse: () => throw const ApiException(
+              'Selecciona un cliente activo.',
+            ),
+          );
+          await store.createResource(
+            'ventas',
+            body: {
+              'cicloId': cycleNumericId,
+              'clienteId': _numericId(client.id, 'cliente'),
+              'fecha': _dateValue(dateController),
+              'fechaLimitePago': _dateValue(
+                dueDateController,
+                fallback: DateTime.now().add(const Duration(days: 15)),
+              ),
+              'total': saleTotal.toStringAsFixed(2),
+              'descuento': _number(discountController).toStringAsFixed(2),
+              'impuesto': _number(saleTaxController).toStringAsFixed(2),
+              if (invoiceController.text.trim().isNotEmpty)
+                'numeroFactura': invoiceController.text.trim(),
+              if (detailController.text.trim().isNotEmpty)
+                'notas': detailController.text.trim(),
+              'renglones': [
+                {
+                  'cantidad': _number(quantityController).toString(),
+                  'unidadId': _unitId(store, saleUnit),
+                  'precioUnitario': _number(priceController).toStringAsFixed(2),
+                  'calidad': _qualityCode(quality),
+                  if (saleOrigin != 'Sin origen específico')
+                    'cosechaId': _numericId(saleOrigin, 'cosecha'),
+                },
+              ],
+            },
+          );
+          break;
+        case 'payment':
+          final saleId = widget.saleId;
+          if (saleId == null) {
+            throw const ApiException('No se encontró la venta del cobro.');
+          }
+          await store.createResource(
+            'ventas/$saleId/cobros',
+            body: {
+              'fecha': _dateValue(dateController),
+              'monto': _number(totalController).toStringAsFixed(2),
+              'metodo': switch (paymentMethod) {
+                'Efectivo' => 'EFECTIVO',
+                'Transferencia' => 'TRANSFERENCIA',
+                'Cheque' => 'CHEQUE',
+                'Tarjeta' => 'TARJETA',
+                _ => 'OTRO',
+              },
+              if (referenceController.text.trim().isNotEmpty)
+                'referencia': referenceController.text.trim(),
+            },
+          );
+          break;
+        case 'cycle':
+          final parcel = _firstOrNull(
+            store.properties
+                .expand((property) => property.parcels)
+                .where((item) => item.id == selectedParcel),
+          );
+          if (parcel == null) {
+            throw const ApiException('Selecciona una parcela disponible.');
+          }
+          final variety = _rowByName(
+            store.catalogs['varieties'] ?? [],
+            selectedVariety,
+            'una variedad',
+          );
+          await store.createResource(
+            'ciclos',
+            body: {
+              'parcelaId': _numericId(parcel.id, 'parcela'),
+              'variedadId': _numericId('${variety['id']}', 'variedad'),
+              'nombre': cycleNameController.text.trim().isEmpty
+                  ? selectedVariety
+                  : cycleNameController.text.trim(),
+              'fechaInicio': _dateValue(cycleDateController),
+              'superficieSembrada':
+                  double.parse(cycleAreaController.text).toString(),
+              'metaProduccionKg': _number(cycleGoalController),
+              if (detailController.text.trim().isNotEmpty)
+                'observaciones': detailController.text.trim(),
+            },
+          );
+          break;
+        case 'close':
+          if (selectedCycleId == null) {
+            throw const ApiException('Selecciona el ciclo que vas a finalizar.');
+          }
+          await store.updateResource(
+            'ciclos/$selectedCycleId/finalizar',
+            body: {'fechaFin': _dateValue(dateController)},
+          );
+          break;
+        default:
+          throw const ApiException('Esta operación no está disponible.');
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            store.dataError == null
+                ? 'Registro guardado en el servidor.'
+                : 'Se guardó, pero no se pudo actualizar la información: ${store.dataError}',
           ),
+        ),
+      );
+      context.pop();
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.message)),
         );
-        break;
-      case 'close':
-        cycle!.status = CycleStatus.cerrado;
-        store.addRecord(
-          'Ciclo cerrado',
-          '${cycle.crop} · ${cycle.parcel} · $closeReason',
-          'Ciclo',
-        );
-        break;
-      default:
-        store.addRecord(
-          widget.type == 'cycle' ? 'Ciclo creado' : 'Actividad registrada',
-          cycle == null
-              ? 'Nuevo ciclo planificado'
-              : '${cycle.crop} · ${cycle.parcel} · $activityType · $responsible',
-          widget.type == 'cycle' ? 'Ciclo' : 'Actividad',
-          cycleId: cycle?.id,
-        );
-        break;
+      }
+    } finally {
+      if (mounted) setState(() => isSaving = false);
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Registro guardado en memoria')),
-    );
-    context.pop();
   }
 }
 
@@ -1225,4 +1649,9 @@ class _SaleAvailability extends StatelessWidget {
       ],
     );
   }
+}
+
+T? _firstOrNull<T>(Iterable<T> values) {
+  final iterator = values.iterator;
+  return iterator.moveNext() ? iterator.current : null;
 }

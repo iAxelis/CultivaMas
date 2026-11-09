@@ -88,6 +88,14 @@ class BackendRepository {
     }
   }
 
+  Future<void> patchAction(String path) async {
+    try {
+      await _apiClient.dio.patch<void>(path);
+    } on DioException catch (error) {
+      throw ApiException.fromDio(error);
+    }
+  }
+
   Future<void> delete(String path) async {
     try {
       await _apiClient.dio.delete<void>(path);
