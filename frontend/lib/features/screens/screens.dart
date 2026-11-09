@@ -901,7 +901,8 @@ class AppShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final role = context.watch<AppStore>().role;
+    final store = context.watch<AppStore>();
+    final role = store.role;
     final destinations = switch (role) {
       UserRole.admin => const [
           ('home', 'Tablero', AppGlyphType.dashboard, '/home'),
@@ -931,11 +932,16 @@ class AppShell extends StatelessWidget {
           if (role != UserRole.capturista)
             IconButton(
               onPressed: () => context.push('/alerts'),
-              icon: const Badge(
-                backgroundColor: AppColors.red,
-                label: Text('2'),
-                child: Icon(Icons.notifications_none_rounded, size: 28),
-              ),
+              icon: store.alerts.isEmpty
+                  ? const Icon(Icons.notifications_none_rounded, size: 28)
+                  : Badge(
+                      backgroundColor: AppColors.red,
+                      label: Text('${store.alerts.length}'),
+                      child: const Icon(
+                        Icons.notifications_none_rounded,
+                        size: 28,
+                      ),
+                    ),
             ),
           if (current == 'more')
             IconButton(
@@ -3338,33 +3344,47 @@ class _ExpensesModule extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final expenses = context
+        .watch<AppStore>()
+        .records
+        .where((record) => record.kind == 'Gasto')
+        .toList();
+    final total = expenses.fold<double>(
+      0,
+      (sum, record) => sum + (record.value ?? 0),
+    );
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        const InfoBanner(
-          text: 'Junio acumula \$31,450 en gastos operativos.',
+        InfoBanner(
+          text: '${expenses.length} gastos registrados · ${money.format(total)} en total.',
           tone: AppColors.earth,
           icon: Icons.receipt_long_rounded,
         ),
         const SizedBox(height: 16),
-        Card(
-          child: Column(
-            children: [
-              ListTile(
-                leading: const IconBox(Icons.science_rounded),
-                title: const Text('Fertilizante foliar'),
-                subtitle: const Text('Agroinsumos Oaxaca · 11 jun'),
-                trailing: Text(money.format(8450)),
-              ),
-              ListTile(
-                leading: const IconBox(Icons.engineering_rounded),
-                title: const Text('Jornal de cosecha'),
-                subtitle: const Text('Mano de obra · 10 jun'),
-                trailing: Text(money.format(12000)),
-              ),
-            ],
+        if (expenses.isEmpty)
+          EmptyState(
+            title: 'Sin gastos registrados',
+            message: 'Los gastos capturados aparecerán aquí.',
+            actionLabel: 'Registrar gasto',
+            onAction: () => context.push('/form/expense'),
+          )
+        else
+          Card(
+            child: Column(
+              children: [
+                for (final record in expenses)
+                  ListTile(
+                    leading: const IconBox(Icons.receipt_long_rounded),
+                    title: Text(record.title),
+                    subtitle: Text(
+                      '${shortDate.format(record.date)} · ${record.detail}',
+                    ),
+                    trailing: Text(money.format(record.value ?? 0)),
+                  ),
+              ],
+            ),
           ),
-        ),
       ],
     );
   }
@@ -3464,34 +3484,29 @@ class _ClientsModule extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
+    final channels = <String, int>{};
+    for (final client in store.clients.where((item) => item.active)) {
+      channels.update(client.kind, (count) => count + 1, ifAbsent: () => 1);
+    }
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         Card(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 96,
-                  height: 96,
-                  child: CustomPaint(painter: DonutPainter()),
-                ),
-                const SizedBox(width: 20),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('FACTURACIÓN POR CANAL'),
-                      SizedBox(height: 10),
-                      Text('● 52% Mayoreo'),
-                      Text('● 31% Restaurantes'),
-                      Text('● 17% Mercado local'),
-                    ],
+          child: Column(
+            children: [
+              const ListTile(
+                title: Text('Clientes activos por canal'),
+                leading: IconBox(Icons.storefront_rounded),
+              ),
+              if (channels.isEmpty)
+                const ListTile(title: Text('Aún no hay canales registrados.'))
+              else
+                for (final entry in channels.entries)
+                  ListTile(
+                    title: Text(entry.key),
+                    trailing: Text('${entry.value}'),
                   ),
-                ),
-              ],
-            ),
+            ],
           ),
         ),
         const SizedBox(height: 16),
@@ -3521,7 +3536,9 @@ class _ClientsModule extends StatelessWidget {
                       '${client.phone.isEmpty ? 'Sin teléfono' : client.phone} · '
                       '${client.email.isEmpty ? 'Sin correo' : client.email}',
                     ),
-                    trailing: PopupMenuButton<String>(
+                    trailing: store.isAuthenticated
+                        ? null
+                        : PopupMenuButton<String>(
                       tooltip: 'Acciones del cliente',
                       onSelected: (value) {
                         if (value == 'toggle') store.togglePartner(client);
@@ -3557,49 +3574,42 @@ class _ClientsModule extends StatelessWidget {
   }
 }
 
-class DonutPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rect = Offset.zero & size;
-    final paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 15;
-    paint.color = AppColors.green;
-    canvas.drawArc(
-        rect.deflate(10), -.5 * math.pi, 1.04 * math.pi, false, paint);
-    paint.color = AppColors.lime;
-    canvas.drawArc(
-        rect.deflate(10), .54 * math.pi, .62 * math.pi, false, paint);
-    paint.color = AppColors.blue;
-    canvas.drawArc(
-        rect.deflate(10), 1.16 * math.pi, .34 * math.pi, false, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
 class _UsersModule extends StatelessWidget {
   const _UsersModule();
 
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
+    final usage = store.companyProfile?['cuotas'];
+    final maxUsers = usage is Map
+        ? int.tryParse('${usage['maxUsuarios']}') ?? 0
+        : store.isAuthenticated
+            ? 0
+            : 5;
+    final activeUsers = usage is Map
+        ? int.tryParse('${usage['usuariosActivos']}') ?? store.users.length
+        : store.users.length;
+    final hasQuota = maxUsers > 0;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         InfoBanner(
-          title: '${store.users.length} de 5 usuarios',
-          text:
-              'Tu plan permite agregar ${5 - store.users.length} personas más.',
+          title: hasQuota
+              ? '$activeUsers de $maxUsers usuarios'
+              : 'Cuota de usuarios no disponible',
+          text: hasQuota
+              ? 'Tu plan permite agregar ${math.max(0, maxUsers - activeUsers)} personas más.'
+              : 'No se pudo consultar el límite vigente del plan.',
           tone: AppColors.green,
           icon: Icons.group_add_rounded,
         ),
         const SizedBox(height: 12),
         MiniBar(
           label: 'Uso del plan',
-          value: '${(store.users.length / 5 * 100).round()}%',
-          progress: store.users.length / 5,
+          value: hasQuota
+              ? '${(activeUsers / maxUsers * 100).round()}%'
+              : '—',
+          progress: hasQuota ? activeUsers / maxUsers : 0,
         ),
         const SizedBox(height: 20),
         if (store.users.isEmpty)
@@ -3621,7 +3631,7 @@ class _UsersModule extends StatelessWidget {
           const SizedBox(height: 12),
         ],
         FilledButton.icon(
-          onPressed: store.users.length >= 5
+          onPressed: !hasQuota || activeUsers >= maxUsers
               ? null
               : () => context.push('/catalog-form/user'),
           icon: const Icon(Icons.person_add_rounded),
@@ -3641,6 +3651,32 @@ class _UsersModule extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+Future<void> _toggleUser(
+  BuildContext context,
+  AppStore store,
+  AppUser user,
+) async {
+  try {
+    await store.toggleUser(user);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          store.isAuthenticated
+              ? 'Estado del usuario actualizado en el servidor.'
+              : 'Estado del usuario actualizado.',
+        ),
+      ),
+    );
+  } on ApiException catch (error) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    }
   }
 }
 
@@ -3666,7 +3702,9 @@ class _UserCard extends StatelessWidget {
         trailing: PopupMenuButton<String>(
           tooltip: 'Acciones del usuario',
           onSelected: (value) {
-            if (value == 'toggle') context.read<AppStore>().toggleUser(user);
+            if (value == 'toggle') {
+              _toggleUser(context, context.read<AppStore>(), user);
+            }
           },
           itemBuilder: (_) => [
             PopupMenuItem(
@@ -3782,6 +3820,52 @@ class _AlertsModuleState extends State<_AlertsModule> {
     final visible = filter == 'Todas'
         ? alerts
         : alerts.where((alert) => alert.severity == filter).toList();
+    Widget alertItem(ProfitabilityAlert alert) {
+      final banner = InfoBanner(
+        title: '${alert.title} · ${alert.severity}',
+        text: alert.detail,
+        tone: alert.severity == 'Alta'
+            ? AppColors.red
+            : alert.severity == 'Media'
+                ? AppColors.amber
+                : AppColors.blue,
+        icon: Icons.warning_rounded,
+      );
+      if (store.isAuthenticated) return banner;
+      return Dismissible(
+        key: ObjectKey(alert),
+        direction: DismissDirection.endToStart,
+        background: Container(
+          alignment: Alignment.centerRight,
+          padding: const EdgeInsets.only(right: 24),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.errorContainer,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: const Icon(
+            Icons.delete_outline_rounded,
+            color: AppColors.red,
+            size: 28,
+          ),
+        ),
+        onDismissed: (_) {
+          final index = store.deleteAlert(alert);
+          ScaffoldMessenger.of(context)
+            ..hideCurrentSnackBar()
+            ..showSnackBar(
+              SnackBar(
+                content: Text('${alert.title} eliminada'),
+                action: SnackBarAction(
+                  label: 'Deshacer',
+                  onPressed: () => store.restoreAlert(alert, index),
+                ),
+              ),
+            );
+        },
+        child: banner,
+      );
+    }
+
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -3817,44 +3901,7 @@ class _AlertsModuleState extends State<_AlertsModule> {
           )
         else
           for (final alert in visible) ...[
-            Dismissible(
-              key: ObjectKey(alert),
-              direction: DismissDirection.endToStart,
-              background: Container(
-                alignment: Alignment.centerRight,
-                padding: const EdgeInsets.only(right: 24),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.errorContainer,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: const Icon(Icons.delete_outline_rounded,
-                    color: AppColors.red, size: 28),
-              ),
-              onDismissed: (_) {
-                final index = store.deleteAlert(alert);
-                ScaffoldMessenger.of(context)
-                  ..hideCurrentSnackBar()
-                  ..showSnackBar(
-                    SnackBar(
-                      content: Text('${alert.title} eliminada'),
-                      action: SnackBarAction(
-                        label: 'Deshacer',
-                        onPressed: () => store.restoreAlert(alert, index),
-                      ),
-                    ),
-                  );
-              },
-              child: InfoBanner(
-                title: '${alert.title} · ${alert.severity}',
-                text: alert.detail,
-                tone: alert.severity == 'Alta'
-                    ? AppColors.red
-                    : alert.severity == 'Media'
-                        ? AppColors.amber
-                        : AppColors.blue,
-                icon: Icons.warning_rounded,
-              ),
-            ),
+            alertItem(alert),
             const SizedBox(height: 12),
           ],
       ],
@@ -4067,7 +4114,9 @@ class _SuppliersModule extends StatelessWidget {
                     leading: const IconBox(Icons.storefront_rounded),
                     title: Text(supplier.name),
                     subtitle: Text('${supplier.kind} · ${supplier.detail}'),
-                    trailing: PopupMenuButton<String>(
+                    trailing: store.isAuthenticated
+                        ? null
+                        : PopupMenuButton<String>(
                       tooltip: 'Acciones del proveedor',
                       onSelected: (value) {
                         if (value == 'toggle') store.togglePartner(supplier);
@@ -4207,54 +4256,209 @@ class _CompanyModule extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final store = context.watch<AppStore>();
+    final company = store.companyProfile;
+    final plan = company?['plan'];
+    final quotas = company?['cuotas'];
+    final planName = plan is Map ? '${plan['nombre']}' : 'Plan';
+    final maxUsers = quotas is Map
+        ? int.tryParse('${quotas['maxUsuarios']}') ?? 0
+        : 0;
+    final activeUsers = quotas is Map
+        ? int.tryParse('${quotas['usuariosActivos']}') ?? 0
+        : 0;
+    final maxParcels = quotas is Map
+        ? int.tryParse('${quotas['maxParcelas']}') ?? 0
+        : 0;
+    final activeParcels = quotas is Map
+        ? int.tryParse('${quotas['parcelasActivas']}') ?? 0
+        : 0;
     return ListView(
       padding: const EdgeInsets.all(16),
-      children: const [
-        HeroCard(
-          eyebrow: 'Suscripción activa',
-          value: 'Plan Crecimiento',
-          subtitle: 'Renovación · 30 sep 2026',
-        ),
-        SizedBox(height: 20),
-        Card(
-          child: Column(
-            children: [
-              ListTile(
-                leading: IconBox(Icons.apartment_rounded),
-                title: Text('Rancho Los Pinos'),
-                subtitle: Text('Agrícola Los Pinos SPR de RL'),
-              ),
-              ListTile(
-                leading: IconBox(Icons.badge_rounded),
-                title: Text('RFC'),
-                trailing: Text('RLP010203XX0'),
-              ),
-              ListTile(
-                leading: IconBox(Icons.currency_exchange_rounded),
-                title: Text('Moneda'),
-                trailing: Text('MXN'),
-              ),
-            ],
+      children: [
+        if (company == null)
+          InfoBanner(
+            title: 'Datos de empresa no disponibles',
+            text: store.dataError ?? 'Inicia sesión como administrador para consultar la empresa.',
+            tone: AppColors.amber,
+          )
+        else ...[
+          HeroCard(
+            eyebrow: 'Suscripción · ${company['estadoSuscripcion'] ?? '—'}',
+            value: planName,
+            subtitle: plan is Map
+                ? '\$${plan['precioMensual'] ?? '—'} MXN / mes'
+                : 'Información del plan',
           ),
-        ),
-        SizedBox(height: 20),
-        SectionTitle('Límites del plan'),
-        SizedBox(height: 12),
-        Card(
-          child: Padding(
-            padding: EdgeInsets.all(20),
+          const SizedBox(height: 20),
+          Card(
             child: Column(
               children: [
-                MiniBar(label: 'Usuarios', value: '3 / 5', progress: .6),
-                SizedBox(height: 16),
-                MiniBar(label: 'Parcelas', value: '4 / 10', progress: .4),
+                ListTile(
+                  leading: const IconBox(Icons.apartment_rounded),
+                  title: Text('${company['nombre'] ?? 'Empresa'}'),
+                  subtitle: Text('${company['razonSocial'] ?? ''}'),
+                ),
+                ListTile(
+                  leading: const IconBox(Icons.alternate_email_rounded),
+                  title: const Text('Correo'),
+                  trailing: Text('${company['correo'] ?? '—'}'),
+                ),
+                ListTile(
+                  leading: const IconBox(Icons.badge_rounded),
+                  title: const Text('RFC'),
+                  trailing: Text('${company['rfc'] ?? '—'}'),
+                ),
+                ListTile(
+                  leading: const IconBox(Icons.currency_exchange_rounded),
+                  title: const Text('Moneda'),
+                  trailing: Text('${company['moneda'] ?? '—'}'),
+                ),
+                if (company['telefono'] != null)
+                  ListTile(
+                    leading: const IconBox(Icons.phone_rounded),
+                    title: const Text('Teléfono'),
+                    trailing: Text('${company['telefono']}'),
+                  ),
+                if (company['direccion'] != null)
+                  ListTile(
+                    leading: const IconBox(Icons.location_on_rounded),
+                    title: const Text('Dirección'),
+                    subtitle: Text('${company['direccion']}'),
+                  ),
               ],
             ),
           ),
-        ),
+          const SizedBox(height: 20),
+          SectionTitle(
+            'Límites del plan',
+            action: TextButton(
+              onPressed: () => _editCompany(context, store, company),
+              child: const Text('Editar datos'),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                children: [
+                  MiniBar(
+                    label: 'Usuarios',
+                    value: '$activeUsers / $maxUsers',
+                    progress: maxUsers == 0 ? 0 : activeUsers / maxUsers,
+                  ),
+                  const SizedBox(height: 16),
+                  MiniBar(
+                    label: 'Parcelas',
+                    value: '$activeParcels / $maxParcels',
+                    progress:
+                        maxParcels == 0 ? 0 : activeParcels / maxParcels,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }
+}
+
+Future<void> _editCompany(
+  BuildContext context,
+  AppStore store,
+  Map<String, dynamic> company,
+) async {
+  final name = TextEditingController(text: '${company['nombre'] ?? ''}');
+  final legalName = TextEditingController(
+    text: '${company['razonSocial'] ?? ''}',
+  );
+  final email = TextEditingController(text: '${company['correo'] ?? ''}');
+  final phone = TextEditingController(text: '${company['telefono'] ?? ''}');
+  final address = TextEditingController(text: '${company['direccion'] ?? ''}');
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Editar empresa'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: name,
+              decoration: const InputDecoration(labelText: 'Nombre comercial'),
+            ),
+            TextField(
+              controller: legalName,
+              decoration: const InputDecoration(labelText: 'Razón social'),
+            ),
+            TextField(
+              controller: email,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(labelText: 'Correo'),
+            ),
+            TextField(
+              controller: phone,
+              decoration: const InputDecoration(labelText: 'Teléfono'),
+            ),
+            TextField(
+              controller: address,
+              decoration: const InputDecoration(labelText: 'Dirección'),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(dialogContext, true),
+          child: const Text('Guardar'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed == true && context.mounted) {
+    try {
+      await store.updateResource(
+        'empresas/mi-empresa',
+        body: {
+          'nombre': name.text.trim(),
+          if (legalName.text.trim().isNotEmpty)
+            'razonSocial': legalName.text.trim(),
+          'correo': email.text.trim(),
+          if (phone.text.trim().isNotEmpty) 'telefono': phone.text.trim(),
+          if (address.text.trim().isNotEmpty)
+            'direccion': address.text.trim(),
+        },
+      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              store.dataError == null
+                  ? 'Empresa actualizada.'
+                  : 'Empresa actualizada, pero no se pudo refrescar: ${store.dataError}',
+            ),
+          ),
+        );
+      }
+    } on ApiException catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.message)),
+        );
+      }
+    }
+  }
+  name.dispose();
+  legalName.dispose();
+  email.dispose();
+  phone.dispose();
+  address.dispose();
 }
 
 class _ProfileModule extends StatelessWidget {

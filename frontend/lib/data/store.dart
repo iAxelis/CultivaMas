@@ -20,6 +20,7 @@ class AppStore extends ChangeNotifier {
   String? startupError;
   String? dataError;
   bool isLoadingData = false;
+  Map<String, dynamic>? companyProfile;
   final Map<String, List<Map<String, dynamic>>> catalogs = {};
 
   static const permissions = [
@@ -346,6 +347,15 @@ class AppStore extends ChangeNotifier {
       final canManagePartners = !isCapturista;
       final canViewSales = !isCapturista;
       final canViewActivities = !const {UserRole.contador}.contains(role);
+      final companyFuture = isAdmin
+          ? _backendRepository.read('empresas/mi-empresa')
+          : Future<Map<String, dynamic>?>.value(null);
+      final alertsFuture = !isCapturista
+          ? _backendRepository.read(
+              'reportes/alertas',
+              queryParameters: const {'page': 1, 'limit': 100},
+            )
+          : Future<Map<String, dynamic>?>.value(null);
 
       final requests = <String, Future<List<Map<String, dynamic>>>>{
         'cycles': _backendRepository.list(
@@ -433,6 +443,8 @@ class AppStore extends ChangeNotifier {
         ),
       );
       final data = Map<String, List<Map<String, dynamic>>>.fromEntries(results);
+      companyProfile = await companyFuture;
+      _loadAlerts(await alertsFuture);
       final varietyGroups = await Future.wait(
         data['crops']!.map(
           (crop) => _backendRepository.list(
@@ -516,6 +528,7 @@ class AppStore extends ChangeNotifier {
     sales.clear();
     records.clear();
     catalogs.clear();
+    companyProfile = null;
     dataError = null;
   }
 
@@ -794,6 +807,29 @@ class AppStore extends ChangeNotifier {
       );
   }
 
+  void _loadAlerts(Map<String, dynamic>? response) {
+    final rows = response?['data'];
+    alerts
+      ..clear()
+      ..addAll(
+        rows is List
+            ? rows.whereType<Map>().map(
+                (row) => ProfitabilityAlert(
+                  severity: switch (row['severidad']) {
+                    'ALTA' => 'Alta',
+                    'MEDIA' => 'Media',
+                    'BAJA' => 'Baja',
+                    'INFORMATIVA' => 'Informativa',
+                    _ => 'Informativa',
+                  },
+                  title: _text(row['codigo'], fallback: 'Alerta'),
+                  detail: _text(row['mensaje'], fallback: 'Revisa el registro relacionado.'),
+                ),
+              )
+            : const <ProfitabilityAlert>[],
+      );
+  }
+
   void addRecord(
     String title,
     String detail,
@@ -999,8 +1035,19 @@ class AppStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  void toggleUser(AppUser user) {
+  Future<void> toggleUser(AppUser user) async {
     if (user == currentUser) return;
+    if (isAuthenticated) {
+      final userId = int.tryParse(user.id ?? '');
+      if (userId == null) {
+        throw const ApiException('No se pudo identificar al usuario.');
+      }
+      await updateResource(
+        'usuarios/$userId',
+        body: {'activo': !user.active},
+      );
+      return;
+    }
     user.active = !user.active;
     notifyListeners();
   }
