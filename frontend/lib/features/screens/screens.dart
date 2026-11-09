@@ -1355,6 +1355,7 @@ class CaptureHomeScreen extends StatelessWidget {
                         width: 260,
                         child: _RecentRecordCard(
                           record: record,
+                          editable: !store.isAuthenticated,
                           onEdit: () =>
                               _editRecentRecord(context, store, record),
                           onDelete: () =>
@@ -1487,11 +1488,13 @@ class _RecordsChart extends StatelessWidget {
 class _RecentRecordCard extends StatelessWidget {
   const _RecentRecordCard({
     required this.record,
+    required this.editable,
     required this.onEdit,
     required this.onDelete,
   });
 
   final ActivityRecord record;
+  final bool editable;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
@@ -1507,7 +1510,7 @@ class _RecentRecordCard extends StatelessWidget {
       elevation: 1,
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        onTap: onEdit,
+        onTap: editable ? onEdit : null,
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
@@ -1570,18 +1573,23 @@ class _RecentRecordCard extends StatelessWidget {
                           ),
                     ),
                   ),
-                  IconButton.filledTonal(
-                    tooltip: 'Editar registro',
-                    onPressed: onEdit,
-                    icon: const AppGlyph(AppGlyphType.edit, size: 19),
-                  ),
-                  IconButton(
-                    tooltip: 'Eliminar registro',
-                    color: AppColors.red,
-                    onPressed: onDelete,
-                    icon: const AppGlyph(AppGlyphType.delete,
-                        size: 19, color: AppColors.red),
-                  ),
+                  if (editable) ...[
+                    IconButton.filledTonal(
+                      tooltip: 'Editar registro',
+                      onPressed: onEdit,
+                      icon: const AppGlyph(AppGlyphType.edit, size: 19),
+                    ),
+                    IconButton(
+                      tooltip: 'Eliminar registro',
+                      color: AppColors.red,
+                      onPressed: onDelete,
+                      icon: const AppGlyph(
+                        AppGlyphType.delete,
+                        size: 19,
+                        color: AppColors.red,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ],
