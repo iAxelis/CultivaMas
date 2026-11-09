@@ -97,6 +97,7 @@ class BackendAuthService implements AuthService {
       throw const ApiException('El perfil recibido del servidor no es válido.');
     }
     return AppUser(
+      id: value['id']?.toString(),
       name: [
         nombre,
         if (apellido is String && apellido.isNotEmpty) apellido,

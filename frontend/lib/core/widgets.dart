@@ -149,6 +149,11 @@ class StatusPill extends StatelessWidget {
         color: AppColors.red,
         icon: Icons.lock_rounded
       ),
+    CycleStatus.cancelado => (
+        label: 'Cancelado',
+        color: AppColors.red,
+        icon: Icons.cancel_rounded
+      ),
   };
 }
 

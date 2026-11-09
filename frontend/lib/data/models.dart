@@ -1,6 +1,13 @@
 enum UserRole { admin, capturista, contador }
 
-enum CycleStatus { activo, suspendido, planificado, finalizado, cerrado }
+enum CycleStatus {
+  activo,
+  suspendido,
+  planificado,
+  finalizado,
+  cerrado,
+  cancelado,
+}
 
 enum PaymentStatus { pendiente, parcial, pagada, vencida }
 
@@ -15,6 +22,8 @@ class FarmCycle {
     required this.income,
     required this.harvestedKg,
     required this.goalKg,
+    this.parcelId,
+    this.varietyId,
   });
 
   final String id;
@@ -26,6 +35,8 @@ class FarmCycle {
   double income;
   double harvestedKg;
   final double goalKg;
+  final String? parcelId;
+  final String? varietyId;
 
   double get profit => income - cost;
   double get margin => income == 0 ? 0 : profit / income;
@@ -72,6 +83,7 @@ class ActivityRecord {
     this.cycleId,
     this.value,
     this.unit,
+    this.id,
   });
 
   String title;
@@ -81,6 +93,7 @@ class ActivityRecord {
   final String? cycleId;
   double? value;
   String? unit;
+  final String? id;
 }
 
 class Parcel {
@@ -152,8 +165,10 @@ class AppUser {
     required this.role,
     this.phone = '',
     this.active = true,
+    this.id,
   });
 
+  final String? id;
   String name;
   String email;
   final UserRole role;

@@ -57,6 +57,10 @@ flutter analyze
 flutter test
 ```
 
-Las vistas de módulos se irán conectando a los endpoints de la API. El cliente
-no utiliza credenciales locales de demostración.
+Al iniciar sesión, la app carga ciclos, actividades, gastos, cosechas, ventas y
+catálogos según el rol autenticado; también consulta predios, clientes,
+proveedores, usuarios y auditoría cuando el rol tiene permiso. La pantalla de
+captura permite actualizar los datos desde la API con el gesto de refrescar.
+Las operaciones de escritura y los módulos restantes siguen en integración.
+El cliente no utiliza credenciales locales de demostración.
 # Cultiva-

@@ -105,7 +105,7 @@ void main() {
   ) async {
     await tester.pumpWidget(
       ChangeNotifierProvider(
-        create: (_) => AppStore(),
+        create: (_) => AppStore(loadRemoteDataOnSignIn: false),
         child: const MaterialApp(
           home: DataFormScreen(type: 'activity', cycleId: 'tomate-p3'),
         ),
@@ -130,7 +130,10 @@ void main() {
 
 Widget _app() {
   return ChangeNotifierProvider(
-    create: (_) => AppStore(authService: _TestAuthService()),
+    create: (_) => AppStore(
+      authService: _TestAuthService(),
+      loadRemoteDataOnSignIn: false,
+    ),
     child: const AgroApp(),
   );
 }

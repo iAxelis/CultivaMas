@@ -721,8 +721,18 @@ class HomeScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
         children: [
+          if (store.isLoadingData) const LinearProgressIndicator(),
+          if (store.dataError != null) ...[
+            InfoBanner(
+              title: 'No se pudieron cargar los datos',
+              text: store.dataError!,
+              tone: AppColors.red,
+              icon: Icons.cloud_off_rounded,
+            ),
+            const SizedBox(height: 12),
+          ],
           Text(
-            'Rancho Los Pinos · Oaxaca',
+            'Datos de ${store.currentUser.email}',
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 16),
@@ -730,7 +740,7 @@ class HomeScreen extends StatelessWidget {
             eyebrow: 'Ganancia acumulada',
             value: money.format(income - cost),
             subtitle:
-                '${((income - cost) / income * 100).toStringAsFixed(1)}% de margen',
+                '${(income == 0 ? 0 : (income - cost) / income * 100).toStringAsFixed(1)}% de margen',
             trailing: Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -1218,14 +1228,23 @@ class CaptureHomeScreen extends StatelessWidget {
       ),
       body: RefreshIndicator(
         color: AppColors.green,
-        onRefresh: () =>
-            Future<void>.delayed(const Duration(milliseconds: 450)),
+        onRefresh: store.loadWorkspace,
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              if (store.isLoadingData) const LinearProgressIndicator(),
+              if (store.dataError != null) ...[
+                InfoBanner(
+                  title: 'No se pudieron cargar los datos',
+                  text: store.dataError!,
+                  tone: AppColors.red,
+                  icon: Icons.cloud_off_rounded,
+                ),
+                const SizedBox(height: 12),
+              ],
               const InfoBanner(
                 text:
                     'Registra lo que ocurrió hoy. Los datos se guardan en la bitácora del ciclo.',
