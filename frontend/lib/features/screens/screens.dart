@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
@@ -158,6 +159,176 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  Future<void> _recoverPassword() async {
+    final email = TextEditingController(text: emailController.text);
+    final token = TextEditingController();
+    final password = TextEditingController();
+    final confirmation = TextEditingController();
+    final apiClient = ApiClient();
+    var codeSent = false;
+    var isSubmittingRecovery = false;
+    String? dialogError;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: Text(codeSent ? 'Restablecer contraseña' : 'Recuperar acceso'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (!codeSent) ...[
+                  const Text(
+                    'Te enviaremos un enlace si el correo está registrado.',
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: email,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: const InputDecoration(
+                      labelText: 'Correo electrónico',
+                    ),
+                  ),
+                ] else ...[
+                  const Text(
+                    'Pega el token o el enlace recibido por correo.',
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: token,
+                    decoration: const InputDecoration(
+                      labelText: 'Token o enlace de recuperación',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: password,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Nueva contraseña',
+                      helperText: 'Mínimo 6 caracteres.',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: confirmation,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Confirmar contraseña',
+                    ),
+                  ),
+                ],
+                if (dialogError != null) ...[
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      dialogError!,
+                      style: TextStyle(
+                        color: Theme.of(dialogContext).colorScheme.error,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isSubmittingRecovery
+                  ? null
+                  : () => Navigator.pop(dialogContext),
+              child: const Text('Cerrar'),
+            ),
+            FilledButton(
+              onPressed: isSubmittingRecovery
+                  ? null
+                  : () async {
+                      setDialogState(() {
+                        isSubmittingRecovery = true;
+                        dialogError = null;
+                      });
+                      try {
+                        if (!codeSent) {
+                          final address = email.text.trim();
+                          if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
+                              .hasMatch(address)) {
+                            setDialogState(
+                              () => dialogError =
+                                  'Escribe un correo electrónico válido.',
+                            );
+                            return;
+                          }
+                          await apiClient.dio.post<void>(
+                            'auth/contrasena/solicitar-recuperacion',
+                            data: {'correo': address.toLowerCase()},
+                            options: Options(extra: {'skipAuthRefresh': true}),
+                          );
+                          if (!dialogContext.mounted) return;
+                          setDialogState(() => codeSent = true);
+                        } else {
+                          final tokenInput = token.text.trim();
+                          final tokenUri = Uri.tryParse(tokenInput);
+                          final recoveryToken =
+                              tokenUri?.queryParameters['token'] ?? tokenInput;
+                          if (recoveryToken.isEmpty ||
+                              password.text.length < 6 ||
+                              password.text != confirmation.text) {
+                            setDialogState(
+                              () => dialogError =
+                                  'Revisa el token y confirma una contraseña de al menos 6 caracteres.',
+                            );
+                            return;
+                          }
+                          await apiClient.dio.post<void>(
+                            'auth/contrasena/restablecer',
+                            data: {
+                              'token': recoveryToken,
+                              'nuevaContrasena': password.text,
+                            },
+                            options: Options(extra: {'skipAuthRefresh': true}),
+                          );
+                          if (!dialogContext.mounted) return;
+                          Navigator.pop(dialogContext);
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Contraseña restablecida. Ya puedes iniciar sesión.',
+                                ),
+                              ),
+                            );
+                          }
+                        }
+                      } on DioException catch (error) {
+                        if (dialogContext.mounted) {
+                          setDialogState(
+                            () => dialogError =
+                                ApiException.fromDio(error).message,
+                          );
+                        }
+                      } on ApiException catch (error) {
+                        if (dialogContext.mounted) {
+                          setDialogState(() => dialogError = error.message);
+                        }
+                      } finally {
+                        if (dialogContext.mounted) {
+                          setDialogState(() => isSubmittingRecovery = false);
+                        }
+                      }
+                    },
+              child: Text(codeSent ? 'Restablecer' : 'Enviar enlace'),
+            ),
+          ],
+        ),
+      ),
+    );
+    email.dispose();
+    token.dispose();
+    password.dispose();
+    confirmation.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final visibleError =
@@ -176,7 +347,7 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
           const SizedBox(height: 7),
           Text(
-            'Ingresa tus datos para continuar a Rancho Los Pinos.',
+            'Ingresa tus credenciales para continuar.',
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodySmall,
           ),
@@ -243,15 +414,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           minimumSize: Size.zero,
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
-                        onPressed: () => ScaffoldMessenger.of(context)
-                          ..hideCurrentSnackBar()
-                          ..showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'La recuperación de contraseña estará disponible próximamente.',
-                              ),
-                            ),
-                          ),
+                        onPressed: isLoading ? null : _recoverPassword,
                         child: const Text(
                           '¿Olvidaste tu contraseña?',
                           textAlign: TextAlign.end,
@@ -332,19 +495,22 @@ class CompanyFormScreen extends StatefulWidget {
 
 class _CompanyFormScreenState extends State<CompanyFormScreen> {
   final formKey = GlobalKey<FormState>();
-  final nameController = TextEditingController(text: 'Ramón Ortega');
-  final emailController = TextEditingController(text: 'ramon@lospinos.mx');
-  final phoneController = TextEditingController(text: '951 555 0142');
-  final passwordController = TextEditingController(text: 'campoclaro');
-  final companyController = TextEditingController(text: 'Rancho Los Pinos');
-  final legalNameController =
-      TextEditingController(text: 'Agrícola Los Pinos SPR de RL');
-  final rfcController = TextEditingController(text: 'RLP010203XX0');
-  String state = 'Oaxaca';
+  final nameController = TextEditingController();
+  final emailController = TextEditingController();
+  final phoneController = TextEditingController();
+  final passwordController = TextEditingController();
+  final companyController = TextEditingController();
+  final legalNameController = TextEditingController();
+  final rfcController = TextEditingController();
+  final otpController = TextEditingController();
+  final addressController = TextEditingController();
+  final apiClient = ApiClient();
   String plan = 'Productor';
   bool accepted = false;
   bool showPassword = false;
   bool showAcceptedError = false;
+  bool otpRequested = false;
+  bool isSubmitting = false;
 
   @override
   void dispose() {
@@ -355,23 +521,116 @@ class _CompanyFormScreenState extends State<CompanyFormScreen> {
     companyController.dispose();
     legalNameController.dispose();
     rfcController.dispose();
+    otpController.dispose();
+    addressController.dispose();
     super.dispose();
   }
 
   String? requiredValue(String? value) =>
       (value ?? '').trim().isEmpty ? 'Este campo es obligatorio.' : null;
 
-  void submit() {
+  Map<String, Object?> _registrationBody() {
+    final administratorName = nameController.text.trim().split(
+      RegExp(r'\s+'),
+    );
+    return {
+      'nombre': companyController.text.trim(),
+      if (legalNameController.text.trim().isNotEmpty)
+        'razonSocial': legalNameController.text.trim(),
+      if (rfcController.text.trim().isNotEmpty)
+        'rfc': rfcController.text.trim().toUpperCase(),
+      'correo': emailController.text.trim().toLowerCase(),
+      if (phoneController.text.trim().isNotEmpty)
+        'telefono': phoneController.text.trim(),
+      if (addressController.text.trim().isNotEmpty)
+        'direccion': addressController.text.trim(),
+      'planCodigo': switch (plan) {
+        'Básico' => 'BASICO',
+        'Profesional' => 'PROFESIONAL',
+        _ => 'PRODUCTOR',
+      },
+      'usuarioNombre': administratorName.first,
+      'usuarioApellido': administratorName.skip(1).join(' '),
+      'usuarioCorreo': emailController.text.trim().toLowerCase(),
+      'usuarioContrasena': passwordController.text,
+      if (phoneController.text.trim().isNotEmpty)
+        'usuarioTelefono': phoneController.text.trim(),
+    };
+  }
+
+  Future<void> submit() async {
     FocusScope.of(context).unfocus();
     setState(() => showAcceptedError = !accepted);
     if (!formKey.currentState!.validate() || !accepted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'El registro empresarial requiere verificar el correo. Intenta de nuevo más tarde.',
-        ),
-      ),
-    );
+    if (otpRequested && !RegExp(r'^\d{6}$').hasMatch(otpController.text)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('El código debe tener 6 dígitos.')),
+      );
+      return;
+    }
+
+    setState(() => isSubmitting = true);
+    final store = context.read<AppStore>();
+    try {
+      if (!otpRequested) {
+        await apiClient.dio.post<void>(
+          'empresas/registro/solicitar-codigo',
+          data: _registrationBody(),
+          options: Options(extra: {'skipAuthRefresh': true}),
+        );
+        if (!mounted) return;
+        setState(() => otpRequested = true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Enviamos un código de verificación a tu correo.'),
+          ),
+        );
+      } else {
+        final response = await apiClient.dio.post<Map<String, dynamic>>(
+          'empresas/registro/confirmar',
+          data: {
+            'correo': emailController.text.trim().toLowerCase(),
+            'codigo': otpController.text.trim(),
+          },
+          options: Options(extra: {'skipAuthRefresh': true}),
+        );
+        final data = response.data;
+        final accessToken = data?['accessToken'];
+        final refreshToken = data?['refreshToken'];
+        if (accessToken is! String || refreshToken is! String) {
+          throw const ApiException(
+            'El servidor no devolvió los tokens de la nueva cuenta.',
+          );
+        }
+        await apiClient.tokenStorage.saveTokens(
+          accessToken: accessToken,
+          refreshToken: refreshToken,
+        );
+        await store.restoreSession();
+        if (!store.isAuthenticated) {
+          throw ApiException(
+            store.startupError ?? 'No se pudo iniciar la sesión creada.',
+          );
+        }
+        if (!mounted) return;
+        context.go('/home');
+      }
+    } on DioException catch (error) {
+      if (mounted) {
+        final apiError = ApiException.fromDio(error);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(apiError.message)),
+        );
+      }
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.message)),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => isSubmitting = false);
+    }
   }
 
   @override
@@ -395,7 +654,9 @@ class _CompanyFormScreenState extends State<CompanyFormScreen> {
             ),
             const SizedBox(height: 7),
             Text(
-              'Todos los datos se usan únicamente en este demo.',
+              otpRequested
+                  ? 'Ingresa el código enviado para confirmar tu correo.'
+                  : 'Crea la cuenta de tu empresa y verifica el correo del administrador.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall,
             ),
@@ -405,16 +666,26 @@ class _CompanyFormScreenState extends State<CompanyFormScreen> {
               controller: nameController,
               textCapitalization: TextCapitalization.words,
               autofillHints: const [AutofillHints.name],
-              decoration: const InputDecoration(labelText: 'Nombre completo'),
-              validator: requiredValue,
+              decoration: const InputDecoration(labelText: 'Nombre y apellido'),
+              validator: (value) {
+                final parts = (value ?? '').trim().split(RegExp(r'\s+'));
+                if (parts.length < 2 ||
+                    parts.first.length < 2 ||
+                    parts.skip(1).join(' ').length < 2) {
+                  return 'Escribe al menos nombre y apellido.';
+                }
+                return null;
+              },
             ),
             const SizedBox(height: 16),
             TextFormField(
               controller: emailController,
+              enabled: !otpRequested,
               keyboardType: TextInputType.emailAddress,
               autofillHints: const [AutofillHints.email],
-              decoration:
-                  const InputDecoration(labelText: 'Correo electrónico'),
+              decoration: const InputDecoration(
+                labelText: 'Correo de administrador y empresa',
+              ),
               validator: (value) {
                 final email = value?.trim() ?? '';
                 if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(email)) {
@@ -493,15 +764,11 @@ class _CompanyFormScreenState extends State<CompanyFormScreen> {
               },
             ),
             const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              initialValue: state,
-              decoration: const InputDecoration(labelText: 'Estado'),
-              items: const [
-                DropdownMenuItem(value: 'Oaxaca', child: Text('Oaxaca')),
-                DropdownMenuItem(value: 'Puebla', child: Text('Puebla')),
-                DropdownMenuItem(value: 'Veracruz', child: Text('Veracruz')),
-              ],
-              onChanged: (value) => setState(() => state = value ?? state),
+            TextFormField(
+              controller: addressController,
+              decoration: const InputDecoration(
+                labelText: 'Dirección de la empresa (opcional)',
+              ),
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
@@ -517,6 +784,26 @@ class _CompanyFormScreenState extends State<CompanyFormScreen> {
               ],
               onChanged: (value) => setState(() => plan = value ?? plan),
             ),
+            if (otpRequested) ...[
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: otpController,
+                keyboardType: TextInputType.number,
+                maxLength: 6,
+                decoration: const InputDecoration(
+                  labelText: 'Código de verificación',
+                  hintText: '000000',
+                  counterText: '',
+                ),
+                validator: (value) {
+                  if (otpRequested &&
+                      !RegExp(r'^\d{6}$').hasMatch(value?.trim() ?? '')) {
+                    return 'Ingresa los 6 dígitos enviados por correo.';
+                  }
+                  return null;
+                },
+              ),
+            ],
             const SizedBox(height: 12),
             CheckboxListTile(
               contentPadding: EdgeInsets.zero,
@@ -527,7 +814,7 @@ class _CompanyFormScreenState extends State<CompanyFormScreen> {
                 showAcceptedError = false;
               }),
               title: const Text(
-                'Acepto continuar con el plan seleccionado en este demo.',
+                'Acepto continuar con el plan seleccionado.',
                 style: TextStyle(fontSize: 12),
               ),
               subtitle: showAcceptedError
@@ -539,8 +826,14 @@ class _CompanyFormScreenState extends State<CompanyFormScreen> {
             ),
             const SizedBox(height: 8),
             FilledButton(
-              onPressed: submit,
-              child: const Text('Crear cuenta'),
+              onPressed: isSubmitting ? null : submit,
+              child: isSubmitting
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Text(otpRequested ? 'Verificar y crear cuenta' : 'Enviar código'),
             ),
             const SizedBox(height: 12),
             Wrap(
@@ -3992,14 +4285,20 @@ class _ProfileModule extends StatelessWidget {
               ListTile(
                 leading: const IconBox(Icons.manage_accounts_rounded),
                 title: const Text('Datos personales'),
-                subtitle: const Text('Nombre, correo y teléfono'),
+                subtitle: Text(
+                  store.isAuthenticated && role != UserRole.admin
+                      ? 'Solo un administrador puede actualizar el perfil'
+                      : 'Nombre, correo y teléfono',
+                ),
                 trailing: const Icon(Icons.chevron_right_rounded),
-                onTap: () => _editProfile(context, store, user),
+                onTap: !store.isAuthenticated || role == UserRole.admin
+                    ? () => _editProfile(context, store, user)
+                    : null,
               ),
               ListTile(
                 leading: const IconBox(Icons.password_rounded),
                 title: const Text('Cambiar contraseña'),
-                subtitle: const Text('Acción simulada en este wireframe'),
+                subtitle: const Text('Actualiza tu contraseña de acceso'),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () => _changePassword(context),
               ),
@@ -4046,6 +4345,7 @@ Future<void> _editProfile(
             const SizedBox(height: 12),
             TextField(
               controller: email,
+              enabled: !store.isAuthenticated,
               keyboardType: TextInputType.emailAddress,
               decoration: const InputDecoration(
                 labelText: 'Correo electrónico',
@@ -4063,16 +4363,59 @@ Future<void> _editProfile(
             ),
             const SizedBox(height: 20),
             FilledButton.icon(
-              onPressed: () {
-                if (name.text.trim().isEmpty || !email.text.contains('@')) {
+              onPressed: () async {
+                final nameParts = name.text.trim().split(RegExp(r'\s+'));
+                if (nameParts.length < 2 ||
+                    nameParts.first.length < 2 ||
+                    nameParts.skip(1).join(' ').length < 2 ||
+                    !email.text.contains('@')) {
                   return;
                 }
+                try {
+                  if (store.isAuthenticated) {
+                    final userId = int.tryParse(user.id ?? '');
+                    if (userId == null) {
+                      throw const ApiException(
+                        'No se pudo identificar al usuario actual.',
+                      );
+                    }
+                    await store.updateResource(
+                      'usuarios/$userId',
+                      body: {
+                        'nombre': nameParts.first,
+                        'apellido': nameParts.skip(1).join(' '),
+                        if (phone.text.trim() != user.phone)
+                          'telefono': phone.text.trim(),
+                      },
+                    );
+                  }
                 store.updateCurrentUser(
                   name: name.text.trim(),
-                  email: email.text.trim(),
+                  email: store.isAuthenticated
+                      ? user.email
+                      : email.text.trim(),
                   phone: phone.text.trim(),
                 );
+                if (!sheetContext.mounted) return;
                 Navigator.pop(sheetContext);
+                if (context.mounted && store.isAuthenticated) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        store.dataError == null
+                            ? 'Perfil actualizado en el servidor.'
+                            : 'Perfil actualizado, pero no se pudo refrescar: ${store.dataError}',
+                      ),
+                    ),
+                  );
+                }
+                } on ApiException catch (error) {
+                  if (sheetContext.mounted) {
+                    ScaffoldMessenger.of(sheetContext).showSnackBar(
+                      SnackBar(content: Text(error.message)),
+                    );
+                  }
+                }
               },
               icon: const Icon(Icons.save_rounded),
               label: const Text('Guardar cambios'),
@@ -4091,15 +4434,21 @@ Future<void> _changePassword(BuildContext context) async {
   final current = TextEditingController();
   final password = TextEditingController();
   final confirmation = TextEditingController();
+  final store = context.read<AppStore>();
+  final apiClient = ApiClient();
+  final pageContext = context;
+  final isBackendSession = store.isAuthenticated;
+  var isSaving = false;
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
     builder: (sheetContext) => StatefulBuilder(
       builder: (context, setModalState) {
-        final valid = current.text.length >= 4 &&
+        final valid = current.text.isNotEmpty &&
             password.text.length >= 8 &&
-            password.text == confirmation.text;
+            password.text == confirmation.text &&
+            !isSaving;
         return Padding(
           padding: EdgeInsets.fromLTRB(
             20,
@@ -4165,16 +4514,61 @@ Future<void> _changePassword(BuildContext context) async {
                     const SizedBox(width: 8),
                     FilledButton.icon(
                       onPressed: valid
-                          ? () {
-                              Navigator.pop(sheetContext);
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                    content: Text('Contraseña actualizada')),
-                              );
+                          ? () async {
+                              setModalState(() => isSaving = true);
+                              try {
+                                if (isBackendSession) {
+                                  await apiClient.dio.patch<void>(
+                                    'auth/contrasena/cambiar',
+                                    data: {
+                                      'contrasenaActual': current.text,
+                                      'nuevaContrasena': password.text,
+                                    },
+                                  );
+                                  await apiClient.tokenStorage.clearTokens();
+                                  await store.signOut();
+                                }
+                                if (!sheetContext.mounted) return;
+                                Navigator.pop(sheetContext);
+                                if (pageContext.mounted) {
+                                  if (isBackendSession) {
+                                    pageContext.go('/login');
+                                  }
+                                  ScaffoldMessenger.of(pageContext).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        isBackendSession
+                                            ? 'La contraseña se actualizó.'
+                                            : 'Contraseña actualizada.',
+                                      ),
+                                    ),
+                                  );
+                                }
+                              } on DioException catch (error) {
+                                if (sheetContext.mounted) {
+                                  ScaffoldMessenger.of(sheetContext).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        ApiException.fromDio(error).message,
+                                      ),
+                                    ),
+                                  );
+                                }
+                              } on ApiException catch (error) {
+                                if (sheetContext.mounted) {
+                                  ScaffoldMessenger.of(sheetContext).showSnackBar(
+                                    SnackBar(content: Text(error.message)),
+                                  );
+                                }
+                              } finally {
+                                if (sheetContext.mounted) {
+                                  setModalState(() => isSaving = false);
+                                }
+                              }
                             }
                           : null,
                       icon: const Icon(Icons.check_circle_outline_rounded),
-                      label: const Text('Actualizar'),
+                      label: Text(isSaving ? 'Actualizando…' : 'Actualizar'),
                     ),
                   ],
                 ),
