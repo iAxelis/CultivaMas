@@ -22,21 +22,21 @@ Para ejecutar en un destino concreto, por ejemplo Chrome:
 flutter run -d chrome
 ```
 
-## Inicio de sesión de prueba
+## Conexión con el backend
 
-La app abre con una animación breve y después muestra directamente el login.
-Estas cuentas locales son únicamente para desarrollo; no protegen datos y no
-deben usarse en producción:
+El frontend consume la API versionada en `http://localhost:3000/api/v1` por
+defecto. La URL se puede cambiar al ejecutar Flutter:
 
-| Perfil | Correo | Contraseña |
-|---|---|---|
-| Administrador | `ramon@lospinos.mx` | `Admin123!` |
-| Capturista | `luis@lospinos.mx` | `Campo123!` |
-| Contador | `marta@lospinos.mx` | `Finanzas123!` |
+```powershell
+flutter run --dart-define=API_BASE_URL=http://localhost:3000/api/v1
+```
 
-Las cuentas están definidas en `lib/data/mock_users.dart` y la validación
-provisional en `lib/data/auth_service.dart`. La sesión se mantiene en memoria
-hasta cerrar sesión o reiniciar la aplicación.
+Para un emulador Android, configura la dirección del host accesible desde el
+emulador (por ejemplo, `http://10.0.2.2:3000/api/v1`). La app autentica contra
+`POST /auth/login`, guarda los tokens en almacenamiento seguro, restaura la
+sesión mediante `GET /auth/me` y renueva tokens rotatorios al recibir un 401.
+El registro empresarial todavía requiere completar el flujo de verificación
+OTP del backend.
 
 ## Organización del código
 
@@ -57,7 +57,6 @@ flutter analyze
 flutter test
 ```
 
-La aplicación es un wireframe funcional sin backend ni persistencia. Los datos
-de demostración y la sesión se mantienen en memoria en `AppStore`; el perfil se
-determina automáticamente con las credenciales de prueba.
+Las vistas de módulos se irán conectando a los endpoints de la API. El cliente
+no utiliza credenciales locales de demostración.
 # Cultiva-

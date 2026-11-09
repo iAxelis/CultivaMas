@@ -10,9 +10,11 @@ import 'data/store.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('es_MX');
+  final store = AppStore();
+  await store.restoreSession();
   runApp(
     ChangeNotifierProvider(
-      create: (_) => AppStore(),
+      create: (_) => store,
       child: const AgroApp(),
     ),
   );

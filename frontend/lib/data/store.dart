@@ -1,8 +1,16 @@
 import 'package:flutter/foundation.dart';
 
+import 'api_client.dart';
+import 'auth_service.dart';
 import 'models.dart';
 
 class AppStore extends ChangeNotifier {
+  AppStore({AuthService? authService})
+    : _authService = authService ?? BackendAuthService();
+
+  final AuthService _authService;
+  String? startupError;
+
   static const permissions = [
     'empresa:administrar',
     'usuario:administrar',
@@ -276,26 +284,39 @@ class AppStore extends ChangeNotifier {
     return (cycle.harvestedKg - sold).clamp(0, double.infinity);
   }
 
-  AppUser? userForLogin(String email, UserRole userRole) {
-    for (final user in users) {
-      if (user.email.toLowerCase() == email.trim().toLowerCase() &&
-          user.role == userRole) {
-        return user;
+  Future<void> restoreSession() async {
+    try {
+      final user = await _authService.restoreSession();
+      if (user != null) {
+        _sessionUser = user;
+        role = user.role;
+      }
+    } on ApiException catch (error) {
+      if (error.statusCode == 401) {
+        startupError = 'Tu sesión expiró. Inicia sesión de nuevo.';
+      } else {
+        startupError = error.message;
       }
     }
-    return null;
+    notifyListeners();
   }
 
-  void signIn(AppUser user) {
+  Future<void> signIn({required String email, required String password}) async {
+    final user = await _authService.signIn(email: email, password: password);
     _sessionUser = user;
     role = user.role;
+    startupError = null;
     notifyListeners();
   }
 
-  void signOut() {
-    _sessionUser = null;
-    role = UserRole.admin;
-    notifyListeners();
+  Future<void> signOut() async {
+    try {
+      await _authService.signOut();
+    } finally {
+      _sessionUser = null;
+      role = UserRole.admin;
+      notifyListeners();
+    }
   }
 
   void addRecord(
@@ -345,9 +366,8 @@ class AppStore extends ChangeNotifier {
     record.title = title;
     record.detail = detail;
     record.kind = updatedKind;
-    record.value = updatedKind == 'Gasto' || updatedKind == 'Cosecha'
-        ? value
-        : null;
+    record.value =
+        updatedKind == 'Gasto' || updatedKind == 'Cosecha' ? value : null;
     record.unit = switch (updatedKind) {
       'Gasto' => 'MXN',
       'Cosecha' => 'kg',

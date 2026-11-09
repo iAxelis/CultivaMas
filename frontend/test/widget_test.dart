@@ -1,4 +1,7 @@
 import 'package:cultiva_plus/data/store.dart';
+import 'package:cultiva_plus/data/api_client.dart';
+import 'package:cultiva_plus/data/auth_service.dart';
+import 'package:cultiva_plus/data/models.dart';
 import 'package:cultiva_plus/features/operations/forms.dart';
 import 'package:cultiva_plus/features/screens/screens.dart';
 import 'package:cultiva_plus/main.dart';
@@ -127,7 +130,7 @@ void main() {
 
 Widget _app() {
   return ChangeNotifierProvider(
-    create: (_) => AppStore(),
+    create: (_) => AppStore(authService: _TestAuthService()),
     child: const AgroApp(),
   );
 }
@@ -157,4 +160,31 @@ Future<void> _signOut(WidgetTester tester) async {
   await tester.pumpAndSettle();
   await tester.tap(find.byTooltip('Cerrar sesión'));
   await tester.pumpAndSettle();
+}
+
+class _TestAuthService implements AuthService {
+  static const _accounts = {
+    'ramon@lospinos.mx': ('Admin123!', 'Ramón Ortega', UserRole.admin),
+    'luis@lospinos.mx': ('Campo123!', 'Luis Pérez', UserRole.capturista),
+    'marta@lospinos.mx': ('Finanzas123!', 'Marta Rangel', UserRole.contador),
+  };
+
+  @override
+  Future<AppUser> signIn({
+    required String email,
+    required String password,
+  }) async {
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    final account = _accounts[email.trim().toLowerCase()];
+    if (account == null || account.$1 != password) {
+      throw const ApiException('Credenciales incorrectas.', statusCode: 401);
+    }
+    return AppUser(name: account.$2, email: email, role: account.$3);
+  }
+
+  @override
+  Future<AppUser?> restoreSession() async => null;
+
+  @override
+  Future<void> signOut() async {}
 }

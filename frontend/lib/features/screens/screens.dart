@@ -9,7 +9,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
-import '../../data/auth_service.dart';
+import '../../data/api_client.dart';
 import '../../data/models.dart';
 import '../../data/store.dart';
 import '../access/access_widgets.dart';
@@ -136,24 +136,21 @@ class _LoginScreenState extends State<LoginScreen> {
       errorMessage = null;
     });
     try {
-      final account = await const MockAuthService().signIn(
+      final store = context.read<AppStore>();
+      await store.signIn(
         email: emailController.text,
         password: passwordController.text,
       );
       if (!mounted) return;
-      final store = context.read<AppStore>();
-      final user = account == null
-          ? null
-          : store.userForLogin(account.email, account.role);
-      if (user == null || !user.active) {
+      context.go(store.role == UserRole.capturista ? '/capture' : '/home');
+    } on ApiException catch (error) {
+      if (mounted) {
         setState(() {
-          errorMessage = 'Correo o contraseña incorrectos.';
-          isLoading = false;
+          errorMessage = error.statusCode == 401
+              ? 'Correo o contraseña incorrectos.'
+              : error.message;
         });
-        return;
       }
-      store.signIn(user);
-      context.go(user.role == UserRole.capturista ? '/capture' : '/home');
     } finally {
       if (mounted && isLoading) {
         setState(() => isLoading = false);
@@ -163,6 +160,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final visibleError =
+        errorMessage ?? context.watch<AppStore>().startupError;
     return AccessScaffold(
       compactBrand: true,
       appName: 'Cultiva+',
@@ -235,7 +234,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 4),
                 Row(
                   children: [
-                    const Expanded(child: Text('Acceso de demostración')),
+                    const Expanded(child: Text('Acceso al sistema')),
                     const Spacer(),
                     Flexible(
                       child: TextButton(
@@ -249,7 +248,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ..showSnackBar(
                             const SnackBar(
                               content: Text(
-                                'La recuperación de contraseña no está disponible en este demo.',
+                                'La recuperación de contraseña estará disponible próximamente.',
                               ),
                             ),
                           ),
@@ -261,12 +260,12 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ],
                 ),
-                if (errorMessage != null) ...[
+                if (visibleError != null) ...[
                   const SizedBox(height: 8),
                   Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      errorMessage!,
+                      visibleError,
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.error,
                         fontWeight: FontWeight.w600,
@@ -315,7 +314,7 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Usa una de las cuentas de prueba documentadas en README.md.',
+            'Usa las credenciales de tu empresa.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
@@ -366,9 +365,13 @@ class _CompanyFormScreenState extends State<CompanyFormScreen> {
     FocusScope.of(context).unfocus();
     setState(() => showAcceptedError = !accepted);
     if (!formKey.currentState!.validate() || !accepted) return;
-    final store = context.read<AppStore>();
-    store.signIn(store.users.firstWhere((user) => user.role == UserRole.admin));
-    context.go('/home');
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'El registro empresarial requiere verificar el correo. Intenta de nuevo más tarde.',
+        ),
+      ),
+    );
   }
 
   @override
@@ -644,9 +647,18 @@ class AppShell extends StatelessWidget {
           if (current == 'more')
             IconButton(
               tooltip: 'Cerrar sesión',
-              onPressed: () {
-                context.read<AppStore>().signOut();
-                context.go('/login');
+              onPressed: () async {
+                try {
+                  await context.read<AppStore>().signOut();
+                } on ApiException catch (error) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(error.message)),
+                    );
+                  }
+                } finally {
+                  if (context.mounted) context.go('/login');
+                }
               },
               icon: const Icon(Icons.logout_rounded,
                   size: 30, color: AppColors.red),
