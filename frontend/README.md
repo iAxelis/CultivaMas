@@ -35,8 +35,8 @@ Para un emulador Android, configura la dirección del host accesible desde el
 emulador (por ejemplo, `http://10.0.2.2:3000/api/v1`). La app autentica contra
 `POST /auth/login`, guarda los tokens en almacenamiento seguro, restaura la
 sesión mediante `GET /auth/me` y renueva tokens rotatorios al recibir un 401.
-El registro empresarial todavía requiere completar el flujo de verificación
-OTP del backend.
+El registro empresarial usa el flujo OTP del backend; también están conectados
+la recuperación/cambio de contraseña y el cierre de sesión.
 
 ## Organización del código
 
@@ -57,10 +57,17 @@ flutter analyze
 flutter test
 ```
 
-Al iniciar sesión, la app carga ciclos, actividades, gastos, cosechas, ventas y
-catálogos según el rol autenticado; también consulta predios, clientes,
-proveedores, usuarios y auditoría cuando el rol tiene permiso. La pantalla de
-captura permite actualizar los datos desde la API con el gesto de refrescar.
-Las operaciones de escritura y los módulos restantes siguen en integración.
-El cliente no utiliza credenciales locales de demostración.
+Al iniciar sesión, la app carga ciclos, actividades, gastos, cosechas, mermas,
+ventas y sus saldos, además de catálogos según el rol autenticado. También
+consulta predios, clientes, proveedores, usuarios, empresa, alertas y auditoría
+cuando el rol tiene permiso. Las capturas operativas, ciclos, catálogos y
+usuarios se envían a la API; las ventas se cancelan en el servidor. La pantalla
+de captura permite actualizar los datos con el gesto de refrescar.
+
+Los reportes y comparativos visibles se calculan con datos sincronizados. La
+descarga de archivos de exportación, carga de adjuntos y edición/eliminación
+general de registros aún no están conectadas desde la app. No se modificó el
+backend. En Flutter Web el navegador puede requerir CORS habilitado en el
+servidor o un proxy del mismo origen; CORS no aplica a las apps nativas.
+El cliente no utiliza credenciales locales de demostración al iniciar sesión.
 # Cultiva-

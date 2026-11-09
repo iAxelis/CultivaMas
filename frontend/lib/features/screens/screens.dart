@@ -3914,48 +3914,72 @@ class _ComparisonModule extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cycles = context.watch<AppStore>().cycles;
+    if (cycles.length < 2) {
+      return EmptyState(
+        title: 'Se necesitan dos ciclos',
+        message: 'Cuando haya dos ciclos cargados podrás comparar sus resultados.',
+        actionLabel: 'Ver ciclos',
+        onAction: () => context.push('/cycles'),
+      );
+    }
+    final left = cycles[0];
+    final right = cycles[1];
     return ListView(
       padding: const EdgeInsets.all(16),
-      children: const [
-        InfoBanner(
-          text: 'Compara rendimiento económico y productivo entre ciclos.',
+      children: [
+        const InfoBanner(
+          text: 'Comparación con datos sincronizados de los ciclos.',
           tone: AppColors.green,
         ),
-        SizedBox(height: 16),
+        const SizedBox(height: 16),
         Row(
           children: [
-            Expanded(
-                child: StatusPill('Tomate · P3', AppColors.green,
-                    icon: Icons.eco_rounded)),
-            SizedBox(width: 8),
-            Expanded(
-                child: StatusPill('Chile · P1', AppColors.amber,
-                    icon: Icons.eco_rounded)),
+            Expanded(child: Text('${left.crop} · ${left.parcel}')),
+            const SizedBox(width: 12),
+            Expanded(child: Text('${right.crop} · ${right.parcel}')),
           ],
         ),
-        SizedBox(height: 20),
+        const SizedBox(height: 20),
         Card(
           child: Padding(
-            padding: EdgeInsets.all(20),
+            padding: const EdgeInsets.all(20),
             child: Column(
               children: [
                 MiniBar(
-                    label: 'Margen · Tomate', value: '28.93%', progress: .78),
-                SizedBox(height: 16),
-                MiniBar(
-                  label: 'Margen · Chile',
-                  value: '-35.06%',
-                  progress: .18,
-                  color: AppColors.red,
+                  label: 'Margen · ${left.crop}',
+                  value: '${(left.margin * 100).toStringAsFixed(2)}%',
+                  progress: left.margin.clamp(0, 1).toDouble(),
+                  color: left.profit < 0 ? AppColors.red : AppColors.green,
                 ),
-                Divider(height: 32),
+                const SizedBox(height: 16),
+                MiniBar(
+                  label: 'Margen · ${right.crop}',
+                  value: '${(right.margin * 100).toStringAsFixed(2)}%',
+                  progress: right.margin.clamp(0, 1).toDouble(),
+                  color: right.profit < 0 ? AppColors.red : AppColors.green,
+                ),
+                const Divider(height: 32),
                 _ComparisonRow(
-                    label: 'Costo / kg', left: '\$10.49', right: '\$12.68'),
+                  label: 'Costo / kg',
+                  left: money.format(left.costPerKg),
+                  right: money.format(right.costPerKg),
+                ),
                 _ComparisonRow(
-                    label: 'Rendimiento / ha',
-                    left: '3,280 kg',
-                    right: '2,278 kg'),
-                _ComparisonRow(label: 'ROI', left: '40.70%', right: '-25.96%'),
+                  label: 'Rendimiento / ha',
+                  left: '${quantity.format(left.area == 0 ? 0 : left.harvestedKg / left.area)} kg',
+                  right: '${quantity.format(right.area == 0 ? 0 : right.harvestedKg / right.area)} kg',
+                ),
+                _ComparisonRow(
+                  label: 'ROI',
+                  left: '${(left.roi * 100).toStringAsFixed(2)}%',
+                  right: '${(right.roi * 100).toStringAsFixed(2)}%',
+                ),
+                _ComparisonRow(
+                  label: 'Ganancia',
+                  left: money.format(left.profit),
+                  right: money.format(right.profit),
+                ),
               ],
             ),
           ),
@@ -4009,7 +4033,16 @@ class _CategoriesModule extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final canEdit = context.watch<AppStore>().role == UserRole.admin;
+    final store = context.watch<AppStore>();
+    final canEdit = store.role == UserRole.admin;
+    final categories = store.catalogs['expenseCategories'] ?? [];
+    final visibleCategories = categories.isEmpty && !store.isAuthenticated
+        ? const [
+            {'nombre': 'Insumos', 'subcategorias': ['Semillas', 'Fertilizantes', 'Agroquímicos']},
+            {'nombre': 'Mano de obra', 'subcategorias': ['Jornales', 'Cosecha', 'Supervisión']},
+            {'nombre': 'Maquinaria', 'subcategorias': ['Renta', 'Combustible', 'Mantenimiento']},
+          ]
+        : categories;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -4021,30 +4054,30 @@ class _CategoriesModule extends StatelessWidget {
           icon: Icons.account_tree_rounded,
         ),
         const SizedBox(height: 16),
-        const _CategoryCard(
-          title: 'Insumos',
-          children: ['Semillas', 'Fertilizantes', 'Agroquímicos'],
-        ),
-        const SizedBox(height: 12),
-        const _CategoryCard(
-          title: 'Mano de obra',
-          children: ['Jornales', 'Cosecha', 'Supervisión'],
-        ),
-        const SizedBox(height: 12),
-        const _CategoryCard(
-          title: 'Maquinaria',
-          children: ['Renta', 'Combustible', 'Mantenimiento'],
-        ),
+        if (visibleCategories.isEmpty)
+          const InfoBanner(
+            title: 'Sin categorías de gasto',
+            text: 'No hay categorías disponibles en el catálogo del servidor.',
+            tone: AppColors.amber,
+          )
+        else
+          for (final category in visibleCategories) ...[
+            _CategoryCard(
+              title: '${category['nombre']}',
+              children: _categoryChildren(category),
+            ),
+            const SizedBox(height: 12),
+          ],
         if (canEdit) ...[
           const SizedBox(height: 16),
           FilledButton.icon(
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                    content:
-                        Text('Categoría personalizada guardada en el demo')),
-              );
-            },
+            onPressed: () => store.isAuthenticated
+                ? _createExpenseCategory(context, store)
+                : ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('La categoría se guardaría en el demo.'),
+                    ),
+                  ),
             icon: const Icon(Icons.add_rounded),
             label: const Text('Nueva categoría personalizada'),
           ),
@@ -4052,6 +4085,85 @@ class _CategoriesModule extends StatelessWidget {
       ],
     );
   }
+}
+
+List<String> _categoryChildren(Map<String, dynamic> category) {
+  final children = category['subcategorias'];
+  if (children is! List) return const [];
+  return children
+      .map((child) => child is Map ? '${child['nombre']}' : '$child')
+      .toList();
+}
+
+Future<void> _createExpenseCategory(
+  BuildContext context,
+  AppStore store,
+) async {
+  final name = TextEditingController();
+  final description = TextEditingController();
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Nueva categoría'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: name,
+            decoration: const InputDecoration(labelText: 'Nombre'),
+          ),
+          TextField(
+            controller: description,
+            decoration: const InputDecoration(labelText: 'Descripción (opcional)'),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(dialogContext, true),
+          child: const Text('Guardar'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed == true && context.mounted) {
+    try {
+      if (name.text.trim().length < 2) {
+        throw const ApiException('El nombre debe tener al menos 2 caracteres.');
+      }
+      await store.createResource(
+        'catalogos/categorias-gasto',
+        body: {
+          'nombre': name.text.trim(),
+          if (description.text.trim().isNotEmpty)
+            'descripcion': description.text.trim(),
+        },
+      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              store.dataError == null
+                  ? 'Categoría guardada en el servidor.'
+                  : 'Categoría guardada, pero no se pudo refrescar: ${store.dataError}',
+            ),
+          ),
+        );
+      }
+    } on ApiException catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.message)),
+        );
+      }
+    }
+  }
+  name.dispose();
+  description.dispose();
 }
 
 class _CategoryCard extends StatelessWidget {
@@ -4169,83 +4281,85 @@ class _ReportsModule extends StatefulWidget {
 }
 
 class _ReportsModuleState extends State<_ReportsModule> {
-  String selectedPeriod = 'Este ciclo';
-  String selectedCycle = 'Todos';
+  String? selectedCycleId;
 
   @override
   Widget build(BuildContext context) {
-    void simulateExport(String title) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content:
-              Text('$title listo para exportar · simulación sin archivo real'),
-        ),
-      );
-    }
-
+    final store = context.watch<AppStore>();
+    final cycles = store.cycles;
+    final activeSelection = cycles.any((cycle) => cycle.id == selectedCycleId)
+        ? selectedCycleId
+        : null;
+    final visibleCycles = activeSelection == null
+        ? cycles
+        : cycles.where((cycle) => cycle.id == activeSelection).toList();
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: DropdownButtonFormField<String>(
-                initialValue: selectedPeriod,
-                decoration: const InputDecoration(labelText: 'Periodo'),
-                items: const [
+        if (cycles.isNotEmpty)
+          DropdownButtonFormField<String>(
+            initialValue: activeSelection,
+            decoration: const InputDecoration(labelText: 'Ciclo'),
+            items: [
+                for (final cycle in cycles)
                   DropdownMenuItem(
-                      value: 'Este ciclo', child: Text('Este ciclo')),
-                  DropdownMenuItem(
-                      value: '12 meses', child: Text('Últimos 12 meses')),
-                ],
-                onChanged: (value) {
-                  if (value != null) setState(() => selectedPeriod = value);
-                },
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: DropdownButtonFormField<String>(
-                initialValue: selectedCycle,
-                decoration: const InputDecoration(labelText: 'Ciclo'),
-                items: const [
-                  DropdownMenuItem(value: 'Todos', child: Text('Todos')),
-                  DropdownMenuItem(value: 'Tomate', child: Text('Tomate · P3')),
-                ],
-                onChanged: (value) {
-                  if (value != null) setState(() => selectedCycle = value);
-                },
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 20),
+                    value: cycle.id,
+                    child: Text('${cycle.crop} · ${cycle.parcel}'),
+                  ),
+            ],
+            onChanged: (value) => setState(() => selectedCycleId = value),
+          ),
+        const SizedBox(height: 16),
         const InfoBanner(
-          title: 'Exportación simulada',
+          title: 'Indicadores sincronizados',
           text:
-              'PDF, Excel y Compartir confirman la acción sin generar archivos reales.',
+                'Los indicadores se calculan con ciclos, gastos, cosechas y ventas recibidos del servidor.',
           tone: AppColors.blue,
           icon: Icons.ios_share_rounded,
         ),
-        const SizedBox(height: 16),
-        Card(
-          child: Column(
-            children: [
-              for (final report in const [
-                'Rentabilidad por ciclo',
-                'Costos por categoría',
-                'Producción y mermas',
-              ])
-                ListTile(
-                  leading: const IconBox(Icons.assessment_rounded),
-                  title: Text(report),
-                  subtitle: const Text('PDF · Excel · Compartir'),
-                  trailing: const Icon(Icons.chevron_right_rounded),
-                  onTap: () => simulateExport(report),
+        const SizedBox(height: 12),
+        if (visibleCycles.isEmpty)
+          EmptyState(
+            title: 'Sin ciclos para reportar',
+            message: 'Los reportes aparecerán cuando la API devuelva ciclos.',
+            actionLabel: 'Ver ciclos',
+            onAction: () => context.push('/cycles'),
+          )
+        else
+          for (final cycle in visibleCycles) ...[
+            Card(
+                child: Column(
+                  children: [
+                    ListTile(
+                      leading: const IconBox(Icons.assessment_rounded),
+                      title: Text('${cycle.crop} · ${cycle.parcel}'),
+                      subtitle: Text('Estado: ${cycle.status.name}'),
+                    ),
+                    ListTile(
+                      title: const Text('Costo total'),
+                      trailing: Text(money.format(cycle.cost)),
+                    ),
+                    ListTile(
+                      title: const Text('Ingresos'),
+                      trailing: Text(money.format(cycle.income)),
+                    ),
+                    ListTile(
+                      title: const Text('Ganancia'),
+                      trailing: Text(money.format(cycle.profit)),
+                    ),
+                    ListTile(
+                      title: const Text('Cosecha'),
+                      trailing: Text('${quantity.format(cycle.harvestedKg)} kg'),
+                    ),
+                    ListTile(
+                      title: const Text('Costo por kg'),
+                      trailing: Text(money.format(cycle.costPerKg)),
+                    ),
+                  ],
                 ),
-            ],
-          ),
-        ),
+            ),
+            const SizedBox(height: 12),
+          ],
       ],
     );
   }
