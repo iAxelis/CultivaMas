@@ -25,6 +25,10 @@ class SplashScreen extends StatefulWidget {
 class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController controller;
+  late final Animation<double> logoOpacity;
+  late final Animation<double> titleOpacity;
+  late final Animation<double> taglineOpacity;
+  late final Animation<double> progressOpacity;
   Timer? timer;
 
   @override
@@ -34,6 +38,22 @@ class _SplashScreenState extends State<SplashScreen>
       vsync: this,
       duration: const Duration(milliseconds: 850),
     )..forward();
+    logoOpacity = CurvedAnimation(
+      parent: controller,
+      curve: const Interval(0, .58, curve: Curves.easeOut),
+    );
+    titleOpacity = CurvedAnimation(
+      parent: controller,
+      curve: const Interval(.16, .7, curve: Curves.easeOut),
+    );
+    taglineOpacity = CurvedAnimation(
+      parent: controller,
+      curve: const Interval(.3, .84, curve: Curves.easeOut),
+    );
+    progressOpacity = CurvedAnimation(
+      parent: controller,
+      curve: const Interval(.46, 1, curve: Curves.easeOut),
+    );
     timer = Timer(const Duration(milliseconds: 1000), () {
       if (mounted) context.go('/login');
     });
@@ -52,19 +72,19 @@ class _SplashScreenState extends State<SplashScreen>
       body: ColoredBox(
         color: AppColors.green,
         child: Center(
-          child: FadeTransition(
-            opacity: CurvedAnimation(
-              parent: controller,
-              curve: Curves.easeOut,
-            ),
-            child: ScaleTransition(
-              scale: Tween<double>(begin: .9, end: 1).animate(
-                CurvedAnimation(parent: controller, curve: Curves.easeOutBack),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              FadeTransition(
+                opacity: logoOpacity,
+                child: ScaleTransition(
+                  scale: Tween<double>(begin: .82, end: 1).animate(
+                    CurvedAnimation(
+                      parent: controller,
+                      curve: Curves.easeOutBack,
+                    ),
+                  ),
+                  child: Container(
                     width: 112,
                     height: 112,
                     padding: const EdgeInsets.all(12),
@@ -73,8 +93,26 @@ class _SplashScreenState extends State<SplashScreen>
                       semanticsLabel: 'Logo de Cultiva+',
                     ),
                   ),
-                  const SizedBox(height: 20),
-                  const Text(
+                ),
+              ),
+              const SizedBox(height: 20),
+              FadeTransition(
+                opacity: titleOpacity,
+                child: SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(0, .3),
+                    end: Offset.zero,
+                  ).animate(
+                    CurvedAnimation(
+                      parent: controller,
+                      curve: const Interval(
+                        .16,
+                        .7,
+                        curve: Curves.easeOutCubic,
+                      ),
+                    ),
+                  ),
+                  child: const Text(
                     'Cultiva+',
                     style: TextStyle(
                       color: Colors.white,
@@ -83,23 +121,44 @@ class _SplashScreenState extends State<SplashScreen>
                       letterSpacing: 1.2,
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  const Text(
+                ),
+              ),
+              const SizedBox(height: 8),
+              FadeTransition(
+                opacity: taglineOpacity,
+                child: SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(0, .25),
+                    end: Offset.zero,
+                  ).animate(
+                    CurvedAnimation(
+                      parent: controller,
+                      curve: const Interval(
+                        .3,
+                        .84,
+                        curve: Curves.easeOutCubic,
+                      ),
+                    ),
+                  ),
+                  child: const Text(
                     'Cada parcela cuenta',
                     style: TextStyle(color: Colors.white70, fontSize: 16),
                   ),
-                  const SizedBox(height: 24),
-                  const SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      color: Colors.white,
-                    ),
-                  ),
-                ],
+                ),
               ),
-            ),
+              const SizedBox(height: 24),
+              FadeTransition(
+                opacity: progressOpacity,
+                child: const SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.5,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
