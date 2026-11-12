@@ -47,8 +47,8 @@ class _DataFormScreenState extends State<DataFormScreen> {
   String selectedVariety = '';
   String unit = 'kg';
   String activityType = 'Aplicación foliar';
-  String responsible = 'Luis Pérez';
-  String expenseCategory = 'Insumos · Fertilizante';
+  String responsible = '';
+  String expenseCategory = '';
   String supplierId = '';
   String linkedActivity = 'Sin actividad';
   String expenseUnit = 'pieza';
@@ -56,7 +56,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
   String lossOrigin = 'Sin cosecha específica';
   String lossReason = 'Daño mecánico';
   String quality = 'Primera';
-  String saleClient = 'Central de Abastos';
+  String saleClient = '';
   String saleOrigin = 'Sin origen específico';
   String saleUnit = 'kg';
   String paymentMethod = 'Efectivo';
@@ -100,7 +100,8 @@ class _DataFormScreenState extends State<DataFormScreen> {
   }
 
   double get expectedTotal {
-    return _number(quantityController) * _number(unitCostController) + _number(taxController);
+    return _number(quantityController) * _number(unitCostController) +
+        _number(taxController);
   }
 
   double get convertedKg {
@@ -121,7 +122,8 @@ class _DataFormScreenState extends State<DataFormScreen> {
     };
   }
 
-  double get saleSubtotal => _number(quantityController) * _number(priceController);
+  double get saleSubtotal =>
+      _number(quantityController) * _number(priceController);
 
   double get saleTotal =>
       saleSubtotal - _number(discountController) + _number(saleTaxController);
@@ -167,9 +169,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
       rows.add(category);
       final children = category['subcategorias'];
       if (children is List) {
-        rows.addAll(
-          children.whereType<Map>().map(Map<String, dynamic>.from),
-        );
+        rows.addAll(children.whereType<Map>().map(Map<String, dynamic>.from));
       }
     }
     return rows;
@@ -213,16 +213,16 @@ class _DataFormScreenState extends State<DataFormScreen> {
   }
 
   String get title => switch (widget.type) {
-        'cycle' => 'Nuevo ciclo · F-07',
-        'close' => 'Cerrar ciclo · F-14',
-        'activity' => 'Registrar actividad · F-08',
-        'expense' => 'Registrar gasto · F-09',
-        'harvest' => 'Registrar cosecha · F-10',
-        'loss' => 'Registrar merma · F-11',
-        'sale' => 'Nueva venta · F-12',
-        'payment' => 'Registrar cobro · F-13',
-        _ => 'Nuevo registro',
-      };
+    'cycle' => 'Nuevo ciclo · F-07',
+    'close' => 'Cerrar ciclo · F-14',
+    'activity' => 'Registrar actividad · F-08',
+    'expense' => 'Registrar gasto · F-09',
+    'harvest' => 'Registrar cosecha · F-10',
+    'loss' => 'Registrar merma · F-11',
+    'sale' => 'Nueva venta · F-12',
+    'payment' => 'Registrar cobro · F-13',
+    _ => 'Nuevo registro',
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -236,14 +236,16 @@ class _DataFormScreenState extends State<DataFormScreen> {
       if (eligible.isNotEmpty) cycleId = eligible.first.id;
     }
     final parcels = store.properties.expand((property) => property.parcels);
-    final occupiedParcelIds = store.cycles
-        .where((cycle) => cycle.status == CycleStatus.activo)
-        .map((cycle) => cycle.parcelId)
-        .whereType<String>()
-        .toSet();
-    final availableParcels = parcels
-        .where((parcel) => !occupiedParcelIds.contains(parcel.id))
-        .toList();
+    final occupiedParcelIds =
+        store.cycles
+            .where((cycle) => cycle.status == CycleStatus.activo)
+            .map((cycle) => cycle.parcelId)
+            .whereType<String>()
+            .toSet();
+    final availableParcels =
+        parcels
+            .where((parcel) => !occupiedParcelIds.contains(parcel.id))
+            .toList();
     if (widget.type == 'cycle' &&
         selectedParcel == null &&
         availableParcels.isNotEmpty) {
@@ -261,22 +263,40 @@ class _DataFormScreenState extends State<DataFormScreen> {
           cycle.status == CycleStatus.activo ||
           cycle.status == CycleStatus.suspendido,
     );
-    if (widget.type != 'cycle' &&
-            widget.type != 'payment' &&
-            !hasEligibleCycle ||
-        widget.type == 'cycle' &&
-            (store.properties.isEmpty || varieties.isEmpty)) {
-      final noCycles =
-          widget.type != 'cycle' &&
-          widget.type != 'payment' &&
-          !hasEligibleCycle;
+    if (widget.type == 'cycle' &&
+        (availableParcels.isEmpty || varieties.isEmpty)) {
       return Scaffold(
         appBar: AppBar(title: Text(title)),
         body: EmptyState(
-          title: noCycles ? 'No hay ciclos disponibles' : 'Faltan datos de catálogo',
-          message: noCycles
-              ? 'Primero debe existir un ciclo activo para registrar movimientos.'
-              : 'Configura al menos un predio, una parcela y una variedad antes de crear ciclos.',
+          title:
+              availableParcels.isEmpty
+                  ? 'Necesitas una parcela disponible'
+                  : 'No hay variedades disponibles',
+          message:
+              availableParcels.isEmpty
+                  ? store.properties.isEmpty
+                      ? 'Primero crea un predio y agrega una parcela. Después podrás volver aquí para crear el ciclo.'
+                      : 'Agrega una parcela disponible en Predios y parcelas, o finaliza un ciclo existente.'
+                  : store.dataError ??
+                      'No se pudo cargar el catálogo de variedades. Vuelve a intentar la sincronización.',
+          actionLabel:
+              availableParcels.isEmpty ? 'Configurar predios' : 'Reintentar',
+          onAction:
+              availableParcels.isEmpty
+                  ? () => context.push('/module/predios')
+                  : () async => store.loadWorkspace(),
+        ),
+      );
+    }
+    if (widget.type != 'cycle' &&
+        widget.type != 'payment' &&
+        !hasEligibleCycle) {
+      return Scaffold(
+        appBar: AppBar(title: Text(title)),
+        body: EmptyState(
+          title: 'No hay ciclos disponibles',
+          message:
+              'Primero debe existir un ciclo activo para registrar movimientos.',
           actionLabel: 'Volver',
           onAction: () => context.pop(),
         ),
@@ -294,7 +314,8 @@ class _DataFormScreenState extends State<DataFormScreen> {
         ),
       );
     }
-    final locked = cycleId != null &&
+    final locked =
+        cycleId != null &&
         widget.type != 'payment' &&
         (store.cycle(cycleId!).status == CycleStatus.finalizado ||
             store.cycle(cycleId!).status == CycleStatus.cerrado);
@@ -317,7 +338,8 @@ class _DataFormScreenState extends State<DataFormScreen> {
             if (locked) ...[
               const InfoBanner(
                 title: 'Ciclo finalizado',
-                text: 'La captura está bloqueada. Solo se permiten cobros pendientes.',
+                text:
+                    'La captura está bloqueada. Solo se permiten cobros pendientes.',
                 tone: AppColors.amber,
                 icon: Icons.lock_rounded,
               ),
@@ -404,7 +426,9 @@ class _DataFormScreenState extends State<DataFormScreen> {
         initialValue: cycleId,
         items: [
           for (final cycle in store.cycles.where(
-            (item) => item.status == CycleStatus.activo || item.status == CycleStatus.suspendido,
+            (item) =>
+                item.status == CycleStatus.activo ||
+                item.status == CycleStatus.suspendido,
           ))
             DropdownMenuItem(
               value: cycle.id,
@@ -418,9 +442,8 @@ class _DataFormScreenState extends State<DataFormScreen> {
 
   List<Widget> _activityFields(AppStore store) {
     final activityRows = store.catalogs['activityTypes'] ?? [];
-    final activityNames = activityRows.isEmpty && !store.isAuthenticated
-        ? const ['Aplicación foliar', 'Riego', 'Deshierbe']
-        : activityRows.map((row) => '${row['nombre']}').toList();
+    final activityNames =
+        activityRows.map((row) => '${row['nombre']}').toList();
     if (activityNames.isNotEmpty && !activityNames.contains(activityType)) {
       activityType = activityNames.first;
     }
@@ -432,7 +455,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
     final responsibleNames = responsibleUsers.map((user) => user.name).toList();
     if (responsibleNames.isNotEmpty &&
         !responsibleNames.contains(responsible)) {
-      responsible = store.currentUser.name;
+      responsible = responsibleNames.first;
     }
     return [
       _cycleSelector(store),
@@ -441,9 +464,8 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Actividad',
         help: 'Selecciona la labor realizada.',
         child: DropdownButtonFormField<String>(
-          initialValue: activityNames.contains(activityType)
-              ? activityType
-              : null,
+          initialValue:
+              activityNames.contains(activityType) ? activityType : null,
           items: [
             for (final name in activityNames)
               DropdownMenuItem(value: name, child: Text(name)),
@@ -458,7 +480,8 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Responsable',
         help: 'Usuario asignado, opcional.',
         child: DropdownButtonFormField<String>(
-          initialValue: responsible,
+          initialValue:
+              responsibleNames.contains(responsible) ? responsible : null,
           items: [
             for (final userName in responsibleNames)
               DropdownMenuItem(value: userName, child: Text(userName)),
@@ -497,7 +520,9 @@ class _DataFormScreenState extends State<DataFormScreen> {
         child: TextFormField(
           controller: detailController,
           maxLines: 3,
-          decoration: const InputDecoration(hintText: 'Escribe una observación'),
+          decoration: const InputDecoration(
+            hintText: 'Escribe una observación',
+          ),
         ),
       ),
     ];
@@ -505,39 +530,40 @@ class _DataFormScreenState extends State<DataFormScreen> {
 
   List<Widget> _expenseFields(AppStore store) {
     final categoryRows = _expenseCategoryRows(store);
-    final categories = categoryRows.isEmpty && !store.isAuthenticated
-        ? const ['Insumos · Fertilizante', 'Mano de obra']
-        : categoryRows.map((row) => '${row['nombre']}').toList();
+    final categories = categoryRows.map((row) => '${row['nombre']}').toList();
     if (expenseCategory.isEmpty && categories.isNotEmpty) {
       expenseCategory = categories.first;
     }
     if (categories.isNotEmpty && !categories.contains(expenseCategory)) {
       expenseCategory = categories.first;
     }
-    final activeSuppliers = store.suppliers
-        .where((supplier) => supplier.active)
-        .toList();
+    final activeSuppliers =
+        store.suppliers.where((supplier) => supplier.active).toList();
     if (activeSuppliers.isNotEmpty &&
         !activeSuppliers.any((supplier) => supplier.id == supplierId)) {
       supplierId = activeSuppliers.first.id;
     }
-    final activityRecords = store.records
-        .where((record) =>
-            record.kind == 'Actividad' &&
-            (cycleId == null || record.cycleId == cycleId))
-        .toList();
-    final expenseUnits = store.isAuthenticated
-        ? (store.catalogs['units'] ?? [])
-            .where((row) => const {
-                  'PESO',
-                  'VOLUMEN',
-                  'AREA',
-                  'TIEMPO',
-                  'CONTEO',
-                }.contains(row['tipo']))
+    final activityRecords =
+        store.records
+            .where(
+              (record) =>
+                  record.kind == 'Actividad' &&
+                  (cycleId == null || record.cycleId == cycleId),
+            )
+            .toList();
+    final expenseUnits =
+        (store.catalogs['units'] ?? [])
+            .where(
+              (row) => const {
+                'PESO',
+                'VOLUMEN',
+                'AREA',
+                'TIEMPO',
+                'CONTEO',
+              }.contains(row['tipo']),
+            )
             .map((row) => '${row['nombre']}')
-            .toList()
-        : const ['pieza', 'kg', 'litro', 'hora'];
+            .toList();
     if (expenseUnits.isNotEmpty && !expenseUnits.contains(expenseUnit)) {
       expenseUnit = expenseUnits.first;
     }
@@ -548,9 +574,8 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Categoría',
         help: 'Se usa para el desglose de costos.',
         child: DropdownButtonFormField<String>(
-          initialValue: categories.contains(expenseCategory)
-              ? expenseCategory
-              : null,
+          initialValue:
+              categories.contains(expenseCategory) ? expenseCategory : null,
           items: [
             for (final category in categories)
               DropdownMenuItem(value: category, child: Text(category)),
@@ -563,17 +588,16 @@ class _DataFormScreenState extends State<DataFormScreen> {
       const SizedBox(height: 20),
       FieldBlock(
         label: 'Proveedor',
-        help: 'CAPTURISTA puede seleccionar proveedores activos sin abrir el catálogo.',
+        help:
+            'CAPTURISTA puede seleccionar proveedores activos sin abrir el catálogo.',
         child: DropdownButtonFormField<String>(
-          initialValue: activeSuppliers.any((item) => item.id == supplierId)
-              ? supplierId
-              : null,
+          initialValue:
+              activeSuppliers.any((item) => item.id == supplierId)
+                  ? supplierId
+                  : null,
           items: [
             for (final supplier in activeSuppliers)
-              DropdownMenuItem(
-                value: supplier.id,
-                child: Text(supplier.name),
-              ),
+              DropdownMenuItem(value: supplier.id, child: Text(supplier.name)),
           ],
           onChanged: (value) {
             if (value != null) setState(() => supplierId = value);
@@ -607,9 +631,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Unidad de medida',
         help: 'Opcional.',
         child: DropdownButtonFormField<String>(
-          initialValue: expenseUnits.contains(expenseUnit)
-              ? expenseUnit
-              : null,
+          initialValue: expenseUnits.contains(expenseUnit) ? expenseUnit : null,
           items: [
             for (final item in expenseUnits)
               DropdownMenuItem(value: item, child: Text(item)),
@@ -651,7 +673,9 @@ class _DataFormScreenState extends State<DataFormScreen> {
               help: 'Unidades',
               child: TextFormField(
                 controller: quantityController,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 decoration: const InputDecoration(hintText: '10'),
               ),
             ),
@@ -663,8 +687,13 @@ class _DataFormScreenState extends State<DataFormScreen> {
               help: 'Antes de impuesto',
               child: TextFormField(
                 controller: unitCostController,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(prefixText: '\$ ', hintText: '800'),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(
+                  prefixText: '\$ ',
+                  hintText: '800',
+                ),
               ),
             ),
           ),
@@ -683,9 +712,10 @@ class _DataFormScreenState extends State<DataFormScreen> {
       const SizedBox(height: 20),
       FieldBlock(
         label: 'Total del comprobante',
-        help: totalMatches
-            ? 'Coincide con cantidad × costo unitario + impuesto.'
-            : 'No coincide. Esperado: ${moneyExact.format(expectedTotal)}',
+        help:
+            totalMatches
+                ? 'Coincide con cantidad × costo unitario + impuesto.'
+                : 'No coincide. Esperado: ${moneyExact.format(expectedTotal)}',
         child: TextFormField(
           controller: totalController,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
@@ -697,19 +727,22 @@ class _DataFormScreenState extends State<DataFormScreen> {
       ),
       const SizedBox(height: 20),
       OutlinedButton.icon(
-        onPressed: () => showModalBottomSheet<void>(
-          context: context,
-          showDragHandle: true,
-          builder: (sheetContext) => const Padding(
-            padding: EdgeInsets.all(24),
-            child: InfoBanner(
-              title: 'Foto de ticket',
-              text: 'Placeholder: la cámara y carga de archivos no se implementan en este wireframe.',
-              tone: AppColors.blue,
-              icon: Icons.camera_alt_outlined,
+        onPressed:
+            () => showModalBottomSheet<void>(
+              context: context,
+              showDragHandle: true,
+              builder:
+                  (sheetContext) => const Padding(
+                    padding: EdgeInsets.all(24),
+                    child: InfoBanner(
+                      title: 'Foto de ticket',
+                      text:
+                          'Placeholder: la cámara y carga de archivos no se implementan en este wireframe.',
+                      tone: AppColors.blue,
+                      icon: Icons.camera_alt_outlined,
+                    ),
+                  ),
             ),
-          ),
-        ),
         icon: const Icon(Icons.attach_file_rounded),
         label: const Text('Adjuntar foto del ticket'),
       ),
@@ -750,7 +783,9 @@ class _DataFormScreenState extends State<DataFormScreen> {
               flex: 2,
               child: TextFormField(
                 controller: quantityController,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 decoration: const InputDecoration(hintText: '0'),
               ),
             ),
@@ -772,7 +807,8 @@ class _DataFormScreenState extends State<DataFormScreen> {
       const SizedBox(height: 12),
       InfoBanner(
         title: 'Conversión automática',
-        text: '${quantity.format(convertedKg)} kg se sumarán a la producción cosechada.',
+        text:
+            '${quantity.format(convertedKg)} kg se sumarán a la producción cosechada.',
         tone: AppColors.green,
         icon: Icons.sync_alt_rounded,
       ),
@@ -807,22 +843,24 @@ class _DataFormScreenState extends State<DataFormScreen> {
 
   List<Widget> _lossFields(AppStore store) {
     final lossReasons = store.catalogs['lossReasons'] ?? [];
-    final lossReasonNames = lossReasons.isEmpty && !store.isAuthenticated
-        ? const ['Daño mecánico', 'Plaga', 'Calidad']
-        : lossReasons.map((row) => '${row['nombre']}').toList();
-    if (lossReasonNames.isNotEmpty &&
-        !lossReasonNames.contains(lossReason)) {
+    final lossReasonNames =
+        lossReasons.map((row) => '${row['nombre']}').toList();
+    if (lossReasonNames.isNotEmpty && !lossReasonNames.contains(lossReason)) {
       lossReason = lossReasonNames.first;
     }
-    final harvestRecords = store.records
-        .where((record) =>
-            record.kind == 'Cosecha' &&
-            (cycleId == null || record.cycleId == cycleId))
-        .toList();
-    final harvestIds = harvestRecords
-        .where((record) => record.id != null)
-        .map((record) => record.id!)
-        .toSet();
+    final harvestRecords =
+        store.records
+            .where(
+              (record) =>
+                  record.kind == 'Cosecha' &&
+                  (cycleId == null || record.cycleId == cycleId),
+            )
+            .toList();
+    final harvestIds =
+        harvestRecords
+            .where((record) => record.id != null)
+            .map((record) => record.id!)
+            .toSet();
     if (lossOrigin != 'Sin cosecha específica' &&
         !harvestIds.contains(lossOrigin)) {
       lossOrigin = 'Sin cosecha específica';
@@ -846,12 +884,17 @@ class _DataFormScreenState extends State<DataFormScreen> {
       ),
       const SizedBox(height: 12),
       InfoBanner(
-        title: stage == 'CAMPO' ? 'No resta de lo cosechado' : 'Sí resta del disponible',
-        text: stage == 'CAMPO'
-            ? 'La merma en campo registra producción potencial perdida; nunca entró al inventario.'
-            : 'La merma poscosecha salió de producto ya cosechado y reduce los kg disponibles.',
+        title:
+            stage == 'CAMPO'
+                ? 'No resta de lo cosechado'
+                : 'Sí resta del disponible',
+        text:
+            stage == 'CAMPO'
+                ? 'La merma en campo registra producción potencial perdida; nunca entró al inventario.'
+                : 'La merma poscosecha salió de producto ya cosechado y reduce los kg disponibles.',
         tone: stage == 'CAMPO' ? AppColors.blue : AppColors.earth,
-        icon: stage == 'CAMPO' ? Icons.info_rounded : Icons.remove_circle_rounded,
+        icon:
+            stage == 'CAMPO' ? Icons.info_rounded : Icons.remove_circle_rounded,
       ),
       const SizedBox(height: 20),
       FieldBlock(
@@ -866,10 +909,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
             ),
             for (final record in harvestRecords)
               if (record.id != null)
-                DropdownMenuItem(
-                  value: record.id,
-                  child: Text(record.title),
-                ),
+                DropdownMenuItem(value: record.id, child: Text(record.title)),
           ],
           onChanged: (value) {
             if (value != null) setState(() => lossOrigin = value);
@@ -927,7 +967,8 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Causa',
         help: 'Ayuda a detectar patrones de pérdida.',
         child: DropdownButtonFormField<String>(
-          initialValue: lossReason,
+          initialValue:
+              lossReasonNames.contains(lossReason) ? lossReason : null,
           items: [
             for (final reason in lossReasonNames)
               DropdownMenuItem(value: reason, child: Text(reason)),
@@ -945,19 +986,21 @@ class _DataFormScreenState extends State<DataFormScreen> {
     final available = store.availableKg(cycle);
     final requested = saleConvertedKg;
     final exceeded = requested > available;
-    final activeClients = store.clients
-        .where((client) => client.active)
-        .toList();
+    final activeClients =
+        store.clients.where((client) => client.active).toList();
     if (activeClients.isNotEmpty &&
         !activeClients.any((client) => client.name == saleClient)) {
       saleClient = activeClients.first.name;
     }
-    final harvestRecords = store.records
-        .where((record) =>
-            record.kind == 'Cosecha' &&
-            record.cycleId == cycleId &&
-            record.id != null)
-        .toList();
+    final harvestRecords =
+        store.records
+            .where(
+              (record) =>
+                  record.kind == 'Cosecha' &&
+                  record.cycleId == cycleId &&
+                  record.id != null,
+            )
+            .toList();
     if (saleOrigin != 'Sin origen específico' &&
         harvestRecords.every((record) => record.id != saleOrigin)) {
       saleOrigin = 'Sin origen específico';
@@ -976,7 +1019,12 @@ class _DataFormScreenState extends State<DataFormScreen> {
           children: [
             const IconBox(Icons.inventory_2_rounded),
             const SizedBox(width: 12),
-            Expanded(child: _SaleAvailability(available: available, requested: requested)),
+            Expanded(
+              child: _SaleAvailability(
+                available: available,
+                requested: requested,
+              ),
+            ),
           ],
         ),
       ),
@@ -985,9 +1033,10 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Cliente',
         help: 'Selecciona quién recibe la venta.',
         child: DropdownButtonFormField<String>(
-          initialValue: activeClients.any((client) => client.name == saleClient)
-              ? saleClient
-              : null,
+          initialValue:
+              activeClients.any((client) => client.name == saleClient)
+                  ? saleClient
+                  : null,
           items: [
             for (final client in activeClients)
               DropdownMenuItem(value: client.name, child: Text(client.name)),
@@ -1045,8 +1094,13 @@ class _DataFormScreenState extends State<DataFormScreen> {
               child: TextFormField(
                 controller: discountController,
                 onChanged: (_) => setState(() {}),
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(prefixText: '\$ ', hintText: '0.00'),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(
+                  prefixText: '\$ ',
+                  hintText: '0.00',
+                ),
               ),
             ),
           ),
@@ -1058,8 +1112,13 @@ class _DataFormScreenState extends State<DataFormScreen> {
               child: TextFormField(
                 controller: saleTaxController,
                 onChanged: (_) => setState(() {}),
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(prefixText: '\$ ', hintText: '0.00'),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(
+                  prefixText: '\$ ',
+                  hintText: '0.00',
+                ),
               ),
             ),
           ),
@@ -1075,7 +1134,9 @@ class _DataFormScreenState extends State<DataFormScreen> {
             children: [
               DropdownButtonFormField<String>(
                 initialValue: saleOrigin,
-                decoration: const InputDecoration(labelText: 'Cosecha de origen'),
+                decoration: const InputDecoration(
+                  labelText: 'Cosecha de origen',
+                ),
                 items: [
                   const DropdownMenuItem(
                     value: 'Sin origen específico',
@@ -1113,7 +1174,10 @@ class _DataFormScreenState extends State<DataFormScreen> {
                   DropdownMenuItem(value: 'Primera', child: Text('Primera')),
                   DropdownMenuItem(value: 'Segunda', child: Text('Segunda')),
                   DropdownMenuItem(value: 'Tercera', child: Text('Tercera')),
-                  DropdownMenuItem(value: 'Industria', child: Text('Industrial')),
+                  DropdownMenuItem(
+                    value: 'Industria',
+                    child: Text('Industrial'),
+                  ),
                 ],
                 onChanged: (value) => setState(() => quality = value!),
               ),
@@ -1123,10 +1187,13 @@ class _DataFormScreenState extends State<DataFormScreen> {
                   Expanded(
                     child: TextFormField(
                       controller: quantityController,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
                       decoration: InputDecoration(
                         labelText: 'Cantidad',
-                        suffixText: saleUnit == 'caja' ? 'caja 20 kg' : saleUnit,
+                        suffixText:
+                            saleUnit == 'caja' ? 'caja 20 kg' : saleUnit,
                         errorText: exceeded ? 'Supera el disponible' : null,
                       ),
                     ),
@@ -1136,7 +1203,9 @@ class _DataFormScreenState extends State<DataFormScreen> {
                     child: TextFormField(
                       controller: priceController,
                       onChanged: (_) => setState(() {}),
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
                       decoration: InputDecoration(
                         labelText: 'Precio / $saleUnit',
                         prefixText: '\$ ',
@@ -1163,7 +1232,8 @@ class _DataFormScreenState extends State<DataFormScreen> {
       const SizedBox(height: 20),
       const InfoBanner(
         title: 'Estado de cobro automático',
-        text: 'No se edita: se deriva del total cobrado y de la fecha de vencimiento.',
+        text:
+            'No se edita: se deriva del total cobrado y de la fecha de vencimiento.',
         tone: AppColors.blue,
       ),
       const SizedBox(height: 20),
@@ -1173,7 +1243,9 @@ class _DataFormScreenState extends State<DataFormScreen> {
         child: TextFormField(
           controller: detailController,
           maxLines: 2,
-          decoration: const InputDecoration(hintText: 'Condiciones de la venta'),
+          decoration: const InputDecoration(
+            hintText: 'Condiciones de la venta',
+          ),
         ),
       ),
     ];
@@ -1194,7 +1266,9 @@ class _DataFormScreenState extends State<DataFormScreen> {
           children: [
             Text(sale.client, style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 6),
-            Text('${sale.id} · Saldo ${moneyExact.format(sale.total - sale.paid)}'),
+            Text(
+              '${sale.id} · Saldo ${moneyExact.format(sale.total - sale.paid)}',
+            ),
           ],
         ),
       ),
@@ -1218,7 +1292,10 @@ class _DataFormScreenState extends State<DataFormScreen> {
         child: TextFormField(
           controller: totalController,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: const InputDecoration(prefixText: '\$ ', hintText: '0.00'),
+          decoration: const InputDecoration(
+            prefixText: '\$ ',
+            hintText: '0.00',
+          ),
         ),
       ),
       const SizedBox(height: 20),
@@ -1229,7 +1306,10 @@ class _DataFormScreenState extends State<DataFormScreen> {
           initialValue: paymentMethod,
           items: const [
             DropdownMenuItem(value: 'Efectivo', child: Text('Efectivo')),
-            DropdownMenuItem(value: 'Transferencia', child: Text('Transferencia')),
+            DropdownMenuItem(
+              value: 'Transferencia',
+              child: Text('Transferencia'),
+            ),
             DropdownMenuItem(value: 'Cheque', child: Text('Cheque')),
             DropdownMenuItem(value: 'Tarjeta', child: Text('Tarjeta')),
             DropdownMenuItem(value: 'Otro', child: Text('Otro')),
@@ -1253,18 +1333,19 @@ class _DataFormScreenState extends State<DataFormScreen> {
 
   List<Widget> _cycleFields(AppStore store) {
     final parcels = store.properties.expand((property) => property.parcels);
-    final occupied = store.cycles
-        .where((cycle) => cycle.status == CycleStatus.activo)
-        .map((cycle) => cycle.parcelId)
-        .whereType<String>()
-        .toSet();
-    final available = parcels
-        .where((parcel) => !occupied.contains(parcel.id))
-        .toList();
+    final occupied =
+        store.cycles
+            .where((cycle) => cycle.status == CycleStatus.activo)
+            .map((cycle) => cycle.parcelId)
+            .whereType<String>()
+            .toSet();
+    final available =
+        parcels.where((parcel) => !occupied.contains(parcel.id)).toList();
     final varieties = store.catalogs['varieties'] ?? [];
-    final selectedParcelArea = _firstOrNull(
-      available.where((parcel) => parcel.id == selectedParcel),
-    )?.area;
+    final selectedParcelArea =
+        _firstOrNull(
+          available.where((parcel) => parcel.id == selectedParcel),
+        )?.area;
     return [
       const InfoBanner(
         text: 'Las parcelas con otro ciclo activo se excluyen automáticamente.',
@@ -1274,15 +1355,13 @@ class _DataFormScreenState extends State<DataFormScreen> {
       const SizedBox(height: 20),
       FieldBlock(
         label: 'Parcela disponible',
-        help: '${occupied.length} parcelas se ocultaron por tener un ciclo activo.',
+        help:
+            '${occupied.length} parcelas se ocultaron por tener un ciclo activo.',
         child: DropdownButtonFormField<String>(
           initialValue: selectedParcel,
           items: [
             for (final parcel in available)
-              DropdownMenuItem(
-                value: parcel.id,
-                child: Text(parcel.name),
-              ),
+              DropdownMenuItem(value: parcel.id, child: Text(parcel.name)),
           ],
           onChanged: (value) => setState(() => selectedParcel = value),
         ),
@@ -1336,11 +1415,12 @@ class _DataFormScreenState extends State<DataFormScreen> {
           decoration: InputDecoration(
             suffixText: 'ha',
             hintText: '0.00',
-            errorText: selectedParcelArea != null &&
-                    (double.tryParse(cycleAreaController.text) ?? 0) >
-                        selectedParcelArea
-                ? 'Supera ${selectedParcelArea.toStringAsFixed(2)} ha'
-                : null,
+            errorText:
+                selectedParcelArea != null &&
+                        (double.tryParse(cycleAreaController.text) ?? 0) >
+                            selectedParcelArea
+                    ? 'Supera ${selectedParcelArea.toStringAsFixed(2)} ha'
+                    : null,
           ),
         ),
       ),
@@ -1351,7 +1431,10 @@ class _DataFormScreenState extends State<DataFormScreen> {
         child: TextFormField(
           controller: cycleGoalController,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: const InputDecoration(suffixText: 'kg', hintText: '12,000'),
+          decoration: const InputDecoration(
+            suffixText: 'kg',
+            hintText: '12,000',
+          ),
         ),
       ),
       const SizedBox(height: 20),
@@ -1378,7 +1461,8 @@ class _DataFormScreenState extends State<DataFormScreen> {
       const SizedBox(height: 20),
       const InfoBanner(
         title: 'Hay ventas sin cobrar',
-        text: 'Cerrar el ciclo bloquea la captura, pero los cobros seguirán permitidos.',
+        text:
+            'Cerrar el ciclo bloquea la captura, pero los cobros seguirán permitidos.',
         tone: AppColors.amber,
         icon: Icons.warning_rounded,
       ),
@@ -1389,7 +1473,10 @@ class _DataFormScreenState extends State<DataFormScreen> {
         child: DropdownButtonFormField<String>(
           initialValue: closeReason,
           items: const [
-            DropdownMenuItem(value: 'Fin de temporada', child: Text('Fin de temporada')),
+            DropdownMenuItem(
+              value: 'Fin de temporada',
+              child: Text('Fin de temporada'),
+            ),
             DropdownMenuItem(value: 'Cancelación', child: Text('Cancelación')),
           ],
           onChanged: (value) {
@@ -1405,9 +1492,8 @@ class _DataFormScreenState extends State<DataFormScreen> {
     setState(() => isSaving = true);
     try {
       final selectedCycleId = cycleId;
-      final cycleNumericId = selectedCycleId == null
-          ? null
-          : _numericId(selectedCycleId, 'ciclo');
+      final cycleNumericId =
+          selectedCycleId == null ? null : _numericId(selectedCycleId, 'ciclo');
       switch (widget.type) {
         case 'activity':
           final activityTypeRow = _rowByName(
@@ -1423,8 +1509,10 @@ class _DataFormScreenState extends State<DataFormScreen> {
             'actividades',
             body: {
               'cicloId': cycleNumericId,
-              'tipoActividadId':
-                  _numericId('${activityTypeRow['id']}', 'tipo de actividad'),
+              'tipoActividadId': _numericId(
+                '${activityTypeRow['id']}',
+                'tipo de actividad',
+              ),
               if (responsibleId != null)
                 'responsableId': _numericId(responsibleId, 'responsable'),
               'fecha': _dateValue(dateController),
@@ -1500,9 +1588,8 @@ class _DataFormScreenState extends State<DataFormScreen> {
         case 'sale':
           final client = store.clients.firstWhere(
             (item) => item.name == saleClient && item.active,
-            orElse: () => throw const ApiException(
-              'Selecciona un cliente activo.',
-            ),
+            orElse:
+                () => throw const ApiException('Selecciona un cliente activo.'),
           );
           await store.createResource(
             'ventas',
@@ -1575,9 +1662,10 @@ class _DataFormScreenState extends State<DataFormScreen> {
             body: {
               'parcelaId': _numericId(parcel.id, 'parcela'),
               'variedadId': _numericId('${variety['id']}', 'variedad'),
-              'nombre': cycleNameController.text.trim().isEmpty
-                  ? selectedVariety
-                  : cycleNameController.text.trim(),
+              'nombre':
+                  cycleNameController.text.trim().isEmpty
+                      ? selectedVariety
+                      : cycleNameController.text.trim(),
               'fechaInicio': _dateValue(cycleDateController),
               'superficieSembrada':
                   double.parse(cycleAreaController.text).toString(),
@@ -1589,7 +1677,9 @@ class _DataFormScreenState extends State<DataFormScreen> {
           break;
         case 'close':
           if (selectedCycleId == null) {
-            throw const ApiException('Selecciona el ciclo que vas a finalizar.');
+            throw const ApiException(
+              'Selecciona el ciclo que vas a finalizar.',
+            );
           }
           await store.updateResource(
             'ciclos/$selectedCycleId/finalizar',
@@ -1613,9 +1703,9 @@ class _DataFormScreenState extends State<DataFormScreen> {
       context.pop();
     } on ApiException catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error.message)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
       }
     } finally {
       if (mounted) setState(() => isSaving = false);

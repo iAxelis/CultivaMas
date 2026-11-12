@@ -193,7 +193,7 @@ export const envValidationSchema = Joi.object({
         .required(),
       otherwise: Joi.string()
         .uri({ scheme: ['http', 'https'] })
-        .default('http://localhost:3000/restablecer-contrasena'),
+        .default('http://localhost:8080/restablecer-contrasena'),
     })
     .description('URL base para enlace de restablecimiento de contraseña'),
   PASSWORD_RESET_EXPIRES_MINUTES: Joi.number()

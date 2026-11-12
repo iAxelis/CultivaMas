@@ -17,4 +17,15 @@ describe('HealthController (e2e)', () => {
   it('/api/v1/health (GET) debe responder 200 OK', () => {
     return request(app.getHttpServer()).get('/api/v1/health').expect(200);
   });
+
+  it('permite preflight CORS para el registro desde Flutter Web', () => {
+    return request(app.getHttpServer())
+      .options('/api/v1/empresas/registro/solicitar-codigo')
+      .set('Origin', 'http://localhost:5000')
+      .set('Access-Control-Request-Method', 'POST')
+      .set('Access-Control-Request-Headers', 'content-type')
+      .expect(204)
+      .expect('Access-Control-Allow-Origin', 'http://localhost:5000')
+      .expect('Access-Control-Allow-Methods', /POST/);
+  });
 });

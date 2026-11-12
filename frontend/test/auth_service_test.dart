@@ -5,6 +5,23 @@ import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('extrae tokens de recuperación desde enlaces con query o fragmento', () {
+    expect(
+      recoveryTokenFromInput(
+        'http://localhost:3000/restablecer-contrasena#token=abc123',
+      ),
+      'abc123',
+    );
+    expect(
+      recoveryTokenFromInput(
+        'https://cultiva.test/reset-password?token=def456',
+      ),
+      'def456',
+    );
+    expect(recoveryTokenFromInput('token=ghi789'), 'ghi789');
+    expect(recoveryTokenFromInput('jkl012'), 'jkl012');
+  });
+
   test('inicia sesión con el contrato real y persiste ambos tokens', () async {
     final tokenStorage = _MemoryTokenStorage();
     final dio = Dio(BaseOptions(baseUrl: 'https://cultiva.test/api/v1/'));

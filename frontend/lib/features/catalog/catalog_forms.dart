@@ -30,9 +30,13 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
   final coordinates = TextEditingController();
   UserRole role = UserRole.capturista;
   String clientType = 'OTRO';
+  String? selectedPropertyId;
   String selectedSoilType = '';
   bool active = true;
   bool isSaving = false;
+
+  double? get _areaValue =>
+      double.tryParse(area.text.trim().replaceAll(',', '.'));
 
   @override
   void dispose() {
@@ -61,8 +65,27 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
-    final property = store.properties.isEmpty ? null : store.properties.first;
-    final parsedArea = double.tryParse(area.text) ?? 0;
+    final property =
+        store.properties.isEmpty
+            ? null
+            : store.properties.firstWhere(
+              (item) => item.id == selectedPropertyId,
+              orElse: () => store.properties.first,
+            );
+    final parsedArea = _areaValue ?? 0;
+    final quotas = store.companyProfile?['cuotas'];
+    final maxUsers =
+        quotas is Map
+            ? int.tryParse('${quotas['maxUsuarios']}') ?? 0
+            : store.isAuthenticated
+            ? 0
+            : 5;
+    final activeUsers =
+        quotas is Map
+            ? int.tryParse('${quotas['usuariosActivos']}') ?? store.users.length
+            : store.users.length;
+    final hasUserQuota =
+        maxUsers > 0 && activeUsers < maxUsers;
     final hasValidCoordinates =
         _coordinateValues != null || coordinates.text.trim().isEmpty;
     final valid = name.text.trim().isNotEmpty &&
@@ -73,7 +96,8 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
         (widget.type != 'user' ||
             detail.text.contains('@') &&
                 lastName.text.trim().isNotEmpty &&
-                password.text.length >= 6);
+                password.text.length >= 6 &&
+                hasUserQuota);
     if (widget.type == 'parcel' && property == null) {
       return Scaffold(
         appBar: AppBar(title: Text(title)),
@@ -108,9 +132,16 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
           ],
           if (widget.type == 'user') ...[
             InfoBanner(
-              title: '${5 - store.users.length} lugares disponibles',
-              text: 'Plan Crecimiento · ${store.users.length} de 5 usuarios.',
-              tone: AppColors.green,
+              title:
+                  maxUsers > 0
+                      ? '$activeUsers de $maxUsers usuarios'
+                      : 'Cuota de usuarios no disponible',
+              text:
+                  maxUsers > 0
+                      ? 'Quedan ${maxUsers - activeUsers} lugares en el plan actual.'
+                      : 'No se pudo consultar el límite vigente del plan.',
+              tone:
+                  hasUserQuota ? AppColors.green : AppColors.amber,
               icon: Icons.group_add_rounded,
             ),
             const SizedBox(height: 20),
@@ -160,7 +191,47 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
       };
 
   List<Widget> _specificFields(AppStore store, FarmProperty? property) {
-    if (widget.type == 'property' || widget.type == 'parcel') {
+    if (widget.type == 'property') {
+      return [
+        FieldBlock(
+          label: 'Superficie',
+          help: 'Superficie total del predio en hectáreas.',
+          child: TextFormField(
+            controller: area,
+            onChanged: (_) => setState(() {}),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(suffixText: 'ha'),
+          ),
+        ),
+        const SizedBox(height: 20),
+        FieldBlock(
+          label: 'Ubicación',
+          help: 'Municipio y estado (opcional).',
+          child: TextFormField(
+            controller: detail,
+            decoration: const InputDecoration(hintText: 'Municipio, estado'),
+          ),
+        ),
+        const SizedBox(height: 20),
+        FieldBlock(
+          label: 'Coordenadas',
+          help: 'Opcional: latitud, longitud.',
+          child: TextFormField(
+            controller: coordinates,
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(
+              hintText: '17.0466, -96.6360',
+              errorText:
+                  coordinates.text.trim().isNotEmpty &&
+                          _coordinateValues == null
+                      ? 'Usa latitud, longitud con coordenadas válidas.'
+                      : null,
+            ),
+          ),
+        ),
+      ];
+    }
+    if (widget.type == 'parcel') {
       if (property == null) return const [];
       final soilTypes = store.catalogs['soilTypes'] ?? [];
       final soilNames = soilTypes.map((row) => '${row['nombre']}').toList();
@@ -170,6 +241,22 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
         selectedSoilType = soilNames.first;
       }
       return [
+        if (store.properties.length > 1) ...[
+          FieldBlock(
+            label: 'Predio',
+            help: 'Selecciona dónde se creará la parcela.',
+            child: DropdownButtonFormField<String>(
+              initialValue: property.id,
+              items: [
+                for (final item in store.properties)
+                  DropdownMenuItem(value: item.id, child: Text(item.name)),
+              ],
+              onChanged:
+                  (value) => setState(() => selectedPropertyId = value),
+            ),
+          ),
+          const SizedBox(height: 20),
+        ],
         FieldBlock(
           label: 'Superficie',
           help: widget.type == 'parcel'
@@ -455,7 +542,7 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
               'predios',
               body: {
                 'nombre': name.text.trim(),
-                'superficieTotal': double.parse(area.text),
+                'superficieTotal': _areaValue!,
                 if (detail.text.trim().isNotEmpty)
                   'ubicacion': detail.text.trim(),
                 ..._coordinatesPayload(),
@@ -466,7 +553,7 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
               FarmProperty(
                 id: 'property-${store.properties.length + 1}',
                 name: name.text.trim(),
-                area: double.parse(area.text),
+                area: _areaValue!,
                 location: detail.text.trim(),
                 parcels: [],
               ),
@@ -488,7 +575,7 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
               body: {
                 'predioId': _numericId(property.id, 'predio'),
                 'nombre': name.text.trim(),
-                'superficie': double.parse(area.text),
+                'superficie': _areaValue!,
                 if (soil != null)
                   'tipoSueloId': _numericId('${soil['id']}', 'tipo de suelo'),
                 ..._coordinatesPayload(),
@@ -500,7 +587,7 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
               Parcel(
                 id: 'parcel-${property.parcels.length + 1}',
                 name: name.text.trim(),
-                area: double.parse(area.text),
+                area: _areaValue!,
                 soil: detail.text.trim(),
                 coordinates: coordinates.text.trim(),
               ),

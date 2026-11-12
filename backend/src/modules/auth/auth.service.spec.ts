@@ -766,7 +766,7 @@ describe('AuthService', () => {
         'ramon@correo.com',
         'Ramón',
         expect.stringContaining(
-          'http://localhost:3000/restablecer-contrasena#token=',
+          'http://localhost:8080/restablecer-contrasena#token=',
         ),
         expect.any(String) as string,
       );

@@ -6,6 +6,7 @@ import { SerializacionInterceptor } from '../../src/common/interceptors/serializ
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { configurarSwagger } from '../../src/config/openapi.config';
 import { configurarBodyParsers } from '../../src/config/body-parser.config';
+import { configurarCors } from '../../src/config/cors.config';
 import { assertDatabaseRealEsDeTest } from './e2e-env';
 
 export interface TestAppInstance {
@@ -22,6 +23,7 @@ export async function createTestApp(): Promise<TestAppInstance> {
   configurarBodyParsers(app);
 
   // 1. Configuración idéntica a main.ts
+  configurarCors(app);
   app.setGlobalPrefix('api/v1');
   app.useGlobalFilters(new DomainExceptionFilter());
   app.useGlobalInterceptors(new SerializacionInterceptor());

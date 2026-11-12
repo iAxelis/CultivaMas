@@ -816,7 +816,7 @@ export class AuthService {
 
         const baseUrl = this.configService.get<string>(
           'PASSWORD_RESET_URL',
-          'http://localhost:3000/restablecer-contrasena',
+          'http://localhost:8080/restablecer-contrasena',
         );
         // B7: Enlace con fragmento #token=
         const enlaceRecuperacion = `${baseUrl}#token=${tokenCrudo}`;

@@ -37,6 +37,12 @@ emulador (por ejemplo, `http://10.0.2.2:3000/api/v1`). La app autentica contra
 sesión mediante `GET /auth/me` y renueva tokens rotatorios al recibir un 401.
 El registro empresarial usa el flujo OTP del backend; también están conectados
 la recuperación/cambio de contraseña y el cierre de sesión.
+Para que el enlace del correo abra la app, configura en el backend
+`PASSWORD_RESET_URL` con la URL del frontend terminada en
+`/restablecer-contrasena`. En desarrollo usa
+`http://localhost:8080/restablecer-contrasena` y ejecuta Flutter Web con
+`flutter run -d web-server --web-port 8080`. También puedes pegar el enlace
+completo del correo en el formulario de recuperación.
 
 ## Organización del código
 
@@ -66,8 +72,9 @@ de captura permite actualizar los datos con el gesto de refrescar.
 
 Los reportes y comparativos visibles se calculan con datos sincronizados. La
 descarga de archivos de exportación, carga de adjuntos y edición/eliminación
-general de registros aún no están conectadas desde la app. No se modificó el
-backend. En Flutter Web el navegador puede requerir CORS habilitado en el
-servidor o un proxy del mismo origen; CORS no aplica a las apps nativas.
+general de registros aún no están conectadas desde la app. Flutter Web requiere
+que el origen esté permitido por CORS en el
+backend; en desarrollo se permiten orígenes locales y en producción debe
+configurarse `CORS_ORIGINS`. CORS no aplica a las apps nativas.
 El cliente no utiliza credenciales locales de demostración al iniciar sesión.
 # Cultiva-

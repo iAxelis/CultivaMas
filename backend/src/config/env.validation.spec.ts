@@ -150,7 +150,7 @@ describe('envValidationSchema (Bloques 2 y 3)', () => {
       };
       expect(val.MAIL_TRANSPORT).toBe('log');
       expect(val.PASSWORD_RESET_URL).toBe(
-        'http://localhost:3000/restablecer-contrasena',
+        'http://localhost:8080/restablecer-contrasena',
       );
       expect(val.PASSWORD_RESET_EXPIRES_MINUTES).toBe(15);
       expect(val.MAIL_FROM_EMAIL).toBe('no-reply@rentabilidad-agricola.com');

@@ -3,6 +3,26 @@ import 'package:dio/dio.dart';
 import 'api_client.dart';
 import 'models.dart';
 
+String recoveryTokenFromInput(String input) {
+  final value = input.trim();
+  if (value.startsWith('token=')) {
+    return Uri.splitQueryString(value)['token'] ?? value;
+  }
+
+  final uri = Uri.tryParse(value);
+  if (uri == null) return value;
+
+  final queryToken = uri.queryParameters['token'];
+  if (queryToken != null && queryToken.isNotEmpty) return queryToken;
+
+  final fragment = uri.fragment;
+  if (fragment.isEmpty) return value;
+  if (fragment.contains('=')) {
+    return Uri.splitQueryString(fragment)['token'] ?? fragment;
+  }
+  return fragment;
+}
+
 abstract interface class AuthService {
   Future<AppUser> signIn({required String email, required String password});
 

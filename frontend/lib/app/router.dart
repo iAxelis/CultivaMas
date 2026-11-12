@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../data/models.dart';
+import '../data/auth_service.dart';
 import '../data/store.dart';
 import '../features/catalog/catalog_forms.dart';
 import '../features/operations/forms.dart';
@@ -16,11 +17,15 @@ GoRouter createAppRouter(AppStore store) => GoRouter(
   redirect: (context, state) {
     final path = state.uri.path;
     final isPublicRoute =
-        path == '/splash' || path == '/login' || path == '/company/new';
+        path == '/splash' ||
+        path == '/login' ||
+        path == '/company/new' ||
+        path == '/restablecer-contrasena';
 
     if (!store.isAuthenticated) {
       return isPublicRoute ? null : '/login';
     }
+    if (path == '/restablecer-contrasena') return null;
     if (isPublicRoute) return _homeFor(store.role);
 
     final role = store.role;
@@ -72,6 +77,13 @@ GoRouter createAppRouter(AppStore store) => GoRouter(
   routes: [
     GoRoute(path: '/splash', builder: (_, __) => const SplashScreen()),
     GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
+    GoRoute(
+      path: '/restablecer-contrasena',
+      builder:
+          (_, state) => RecoveryPasswordScreen(
+            initialToken: recoveryTokenFromInput(state.uri.toString()),
+          ),
+    ),
     GoRoute(
       path: '/company/new',
       builder: (_, __) => const CompanyFormScreen(),

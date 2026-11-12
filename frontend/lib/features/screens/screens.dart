@@ -11,6 +11,7 @@ import 'package:provider/provider.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import '../../data/api_client.dart';
+import '../../data/auth_service.dart';
 import '../../data/models.dart';
 import '../../data/store.dart';
 import '../access/access_widgets.dart';
@@ -173,6 +174,128 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
+class RecoveryPasswordScreen extends StatefulWidget {
+  const RecoveryPasswordScreen({this.initialToken = '', super.key});
+
+  final String initialToken;
+
+  @override
+  State<RecoveryPasswordScreen> createState() =>
+      _RecoveryPasswordScreenState();
+}
+
+class _RecoveryPasswordScreenState extends State<RecoveryPasswordScreen> {
+  final token = TextEditingController();
+  final password = TextEditingController();
+  final confirmation = TextEditingController();
+  final apiClient = ApiClient();
+  bool isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    token.text = recoveryTokenFromInput(widget.initialToken);
+  }
+
+  @override
+  void dispose() {
+    token.dispose();
+    password.dispose();
+    confirmation.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (isSaving) return;
+    if (token.text.trim().isEmpty ||
+        password.text.length < 6 ||
+        password.text != confirmation.text) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Revisa el enlace y confirma una contraseña de al menos 6 caracteres.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    setState(() => isSaving = true);
+    try {
+      await apiClient.dio.post<void>(
+        'auth/contrasena/restablecer',
+        data: {
+          'token': recoveryTokenFromInput(token.text),
+          'nuevaContrasena': password.text,
+        },
+        options: Options(extra: {'skipAuthRefresh': true}),
+      );
+      if (!mounted) return;
+      await apiClient.tokenStorage.clearTokens();
+      if (!mounted) return;
+      await context.read<AppStore>().signOut();
+      if (!mounted) return;
+      context.go('/login');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Contraseña restablecida. Ya puedes iniciar sesión.'),
+        ),
+      );
+    } on DioException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ApiException.fromDio(error).message)),
+      );
+    } finally {
+      if (mounted) setState(() => isSaving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Restablecer contraseña')),
+      body: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          const Text(
+            'Ingresa el token del correo y elige una contraseña nueva. El enlace vence a los 15 minutos.',
+          ),
+          const SizedBox(height: 20),
+          TextField(
+            controller: token,
+            decoration: const InputDecoration(
+              labelText: 'Token o enlace de recuperación',
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: password,
+            obscureText: true,
+            decoration: const InputDecoration(
+              labelText: 'Nueva contraseña',
+              helperText: 'Mínimo 6 caracteres.',
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: confirmation,
+            obscureText: true,
+            decoration: const InputDecoration(
+              labelText: 'Confirmar contraseña',
+            ),
+          ),
+          const SizedBox(height: 24),
+          FilledButton(
+            onPressed: isSaving ? null : _submit,
+            child: Text(isSaving ? 'Guardando…' : 'Restablecer contraseña'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _LoginScreenState extends State<LoginScreen> {
   final formKey = GlobalKey<FormState>();
   final emailController = TextEditingController();
@@ -206,9 +329,10 @@ class _LoginScreenState extends State<LoginScreen> {
     } on ApiException catch (error) {
       if (mounted) {
         setState(() {
-          errorMessage = error.statusCode == 401
-              ? 'Correo o contraseña incorrectos.'
-              : error.message;
+          errorMessage =
+              error.statusCode == 401
+                  ? 'Correo o contraseña incorrectos.'
+                  : error.message;
         });
       }
     } finally {
@@ -229,158 +353,179 @@ class _LoginScreenState extends State<LoginScreen> {
     String? dialogError;
     await showDialog<void>(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          title: Text(codeSent ? 'Restablecer contraseña' : 'Recuperar acceso'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (!codeSent) ...[
-                  const Text(
-                    'Te enviaremos un enlace si el correo está registrado.',
+      builder:
+          (dialogContext) => StatefulBuilder(
+            builder:
+                (dialogContext, setDialogState) => AlertDialog(
+                  title: Text(
+                    codeSent ? 'Restablecer contraseña' : 'Recuperar acceso',
                   ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: email,
-                    keyboardType: TextInputType.emailAddress,
-                    decoration: const InputDecoration(
-                      labelText: 'Correo electrónico',
-                    ),
-                  ),
-                ] else ...[
-                  const Text(
-                    'Pega el token o el enlace recibido por correo.',
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: token,
-                    decoration: const InputDecoration(
-                      labelText: 'Token o enlace de recuperación',
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: password,
-                    obscureText: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Nueva contraseña',
-                      helperText: 'Mínimo 6 caracteres.',
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: confirmation,
-                    obscureText: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Confirmar contraseña',
-                    ),
-                  ),
-                ],
-                if (dialogError != null) ...[
-                  const SizedBox(height: 12),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      dialogError!,
-                      style: TextStyle(
-                        color: Theme.of(dialogContext).colorScheme.error,
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: isSubmittingRecovery
-                  ? null
-                  : () => Navigator.pop(dialogContext),
-              child: const Text('Cerrar'),
-            ),
-            FilledButton(
-              onPressed: isSubmittingRecovery
-                  ? null
-                  : () async {
-                      setDialogState(() {
-                        isSubmittingRecovery = true;
-                        dialogError = null;
-                      });
-                      try {
-                        if (!codeSent) {
-                          final address = email.text.trim();
-                          if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
-                              .hasMatch(address)) {
-                            setDialogState(
-                              () => dialogError =
-                                  'Escribe un correo electrónico válido.',
-                            );
-                            return;
-                          }
-                          await apiClient.dio.post<void>(
-                            'auth/contrasena/solicitar-recuperacion',
-                            data: {'correo': address.toLowerCase()},
-                            options: Options(extra: {'skipAuthRefresh': true}),
-                          );
-                          if (!dialogContext.mounted) return;
-                          setDialogState(() => codeSent = true);
-                        } else {
-                          final tokenInput = token.text.trim();
-                          final tokenUri = Uri.tryParse(tokenInput);
-                          final recoveryToken =
-                              tokenUri?.queryParameters['token'] ?? tokenInput;
-                          if (recoveryToken.isEmpty ||
-                              password.text.length < 6 ||
-                              password.text != confirmation.text) {
-                            setDialogState(
-                              () => dialogError =
-                                  'Revisa el token y confirma una contraseña de al menos 6 caracteres.',
-                            );
-                            return;
-                          }
-                          await apiClient.dio.post<void>(
-                            'auth/contrasena/restablecer',
-                            data: {
-                              'token': recoveryToken,
-                              'nuevaContrasena': password.text,
-                            },
-                            options: Options(extra: {'skipAuthRefresh': true}),
-                          );
-                          if (!dialogContext.mounted) return;
-                          Navigator.pop(dialogContext);
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'Contraseña restablecida. Ya puedes iniciar sesión.',
-                                ),
+                  content: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (!codeSent) ...[
+                          const Text(
+                            'Te enviaremos un enlace si el correo está registrado.',
+                          ),
+                          const SizedBox(height: 16),
+                          TextField(
+                            controller: email,
+                            keyboardType: TextInputType.emailAddress,
+                            decoration: const InputDecoration(
+                              labelText: 'Correo electrónico',
+                            ),
+                          ),
+                        ] else ...[
+                          const Text(
+                            'Si el correo está registrado, recibirás instrucciones. Revisa spam. En desarrollo con MAIL_TRANSPORT=log, busca el enlace en la consola del backend. Puedes pegar aquí el token o el enlace completo.',
+                          ),
+                          const SizedBox(height: 16),
+                          TextField(
+                            controller: token,
+                            decoration: const InputDecoration(
+                              labelText: 'Token o enlace de recuperación',
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: password,
+                            obscureText: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Nueva contraseña',
+                              helperText: 'Mínimo 6 caracteres.',
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: confirmation,
+                            obscureText: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Confirmar contraseña',
+                            ),
+                          ),
+                        ],
+                        if (dialogError != null) ...[
+                          const SizedBox(height: 12),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              dialogError!,
+                              style: TextStyle(
+                                color:
+                                    Theme.of(dialogContext).colorScheme.error,
                               ),
-                            );
-                          }
-                        }
-                      } on DioException catch (error) {
-                        if (dialogContext.mounted) {
-                          setDialogState(
-                            () => dialogError =
-                                ApiException.fromDio(error).message,
-                          );
-                        }
-                      } on ApiException catch (error) {
-                        if (dialogContext.mounted) {
-                          setDialogState(() => dialogError = error.message);
-                        }
-                      } finally {
-                        if (dialogContext.mounted) {
-                          setDialogState(() => isSubmittingRecovery = false);
-                        }
-                      }
-                    },
-              child: Text(codeSent ? 'Restablecer' : 'Enviar enlace'),
-            ),
-          ],
-        ),
-      ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed:
+                          isSubmittingRecovery
+                              ? null
+                              : () => Navigator.pop(dialogContext),
+                      child: const Text('Cerrar'),
+                    ),
+                    FilledButton(
+                      onPressed:
+                          isSubmittingRecovery
+                              ? null
+                              : () async {
+                                setDialogState(() {
+                                  isSubmittingRecovery = true;
+                                  dialogError = null;
+                                });
+                                try {
+                                  if (!codeSent) {
+                                    final address = email.text.trim();
+                                    if (!RegExp(
+                                      r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
+                                    ).hasMatch(address)) {
+                                      setDialogState(
+                                        () =>
+                                            dialogError =
+                                                'Escribe un correo electrónico válido.',
+                                      );
+                                      return;
+                                    }
+                                    await apiClient.dio.post<void>(
+                                      'auth/contrasena/solicitar-recuperacion',
+                                      data: {'correo': address.toLowerCase()},
+                                      options: Options(
+                                        extra: {'skipAuthRefresh': true},
+                                      ),
+                                    );
+                                    if (!dialogContext.mounted) return;
+                                    setDialogState(() => codeSent = true);
+                                  } else {
+                                    final recoveryToken =
+                                        recoveryTokenFromInput(token.text);
+                                    if (recoveryToken.isEmpty ||
+                                        password.text.length < 6 ||
+                                        password.text != confirmation.text) {
+                                      setDialogState(
+                                        () =>
+                                            dialogError =
+                                                'Revisa el token y confirma una contraseña de al menos 6 caracteres.',
+                                      );
+                                      return;
+                                    }
+                                    await apiClient.dio.post<void>(
+                                      'auth/contrasena/restablecer',
+                                      data: {
+                                        'token': recoveryToken,
+                                        'nuevaContrasena': password.text,
+                                      },
+                                      options: Options(
+                                        extra: {'skipAuthRefresh': true},
+                                      ),
+                                    );
+                                    if (!dialogContext.mounted) return;
+                                    Navigator.pop(dialogContext);
+                                    if (mounted) {
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                            'Contraseña restablecida. Ya puedes iniciar sesión.',
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                  }
+                                } on DioException catch (error) {
+                                  if (dialogContext.mounted) {
+                                    setDialogState(
+                                      () =>
+                                          dialogError =
+                                              ApiException.fromDio(
+                                                error,
+                                              ).message,
+                                    );
+                                  }
+                                } on ApiException catch (error) {
+                                  if (dialogContext.mounted) {
+                                    setDialogState(
+                                      () => dialogError = error.message,
+                                    );
+                                  }
+                                } finally {
+                                  if (dialogContext.mounted) {
+                                    setDialogState(
+                                      () => isSubmittingRecovery = false,
+                                    );
+                                  }
+                                }
+                              },
+                      child: Text(codeSent ? 'Restablecer' : 'Enviar enlace'),
+                    ),
+                  ],
+                ),
+          ),
     );
     email.dispose();
     token.dispose();
@@ -390,8 +535,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final visibleError =
-        errorMessage ?? context.watch<AppStore>().startupError;
+    final visibleError = errorMessage ?? context.watch<AppStore>().startupError;
     return AccessScaffold(
       compactBrand: true,
       appName: 'Cultiva+',
@@ -400,9 +544,9 @@ class _LoginScreenState extends State<LoginScreen> {
           Text(
             'Iniciar sesión',
             textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 7),
           Text(
@@ -427,8 +571,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   validator: (value) {
                     final email = value?.trim() ?? '';
-                    if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
-                        .hasMatch(email)) {
+                    if (!RegExp(
+                      r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
+                    ).hasMatch(email)) {
                       return 'Escribe un correo electrónico válido.';
                     }
                     return null;
@@ -445,12 +590,15 @@ class _LoginScreenState extends State<LoginScreen> {
                     hintText: '••••••••',
                     prefixIcon: const Icon(Icons.lock_outline_rounded),
                     suffixIcon: IconButton(
-                      tooltip: showPassword
-                          ? 'Ocultar contraseña'
-                          : 'Mostrar contraseña',
-                      onPressed: isLoading
-                          ? null
-                          : () => setState(() => showPassword = !showPassword),
+                      tooltip:
+                          showPassword
+                              ? 'Ocultar contraseña'
+                              : 'Mostrar contraseña',
+                      onPressed:
+                          isLoading
+                              ? null
+                              : () =>
+                                  setState(() => showPassword = !showPassword),
                       icon: Icon(
                         showPassword
                             ? Icons.visibility_off_outlined
@@ -458,8 +606,11 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                   ),
-                  validator: (value) =>
-                      (value ?? '').isEmpty ? 'Escribe tu contraseña.' : null,
+                  validator:
+                      (value) =>
+                          (value ?? '').isEmpty
+                              ? 'Escribe tu contraseña.'
+                              : null,
                 ),
                 const SizedBox(height: 4),
                 Row(
@@ -498,23 +649,24 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 8),
                 FilledButton(
                   onPressed: isLoading ? null : submit,
-                  child: isLoading
-                      ? const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
+                  child:
+                      isLoading
+                          ? const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
                               ),
-                            ),
-                            SizedBox(width: 10),
-                            Text('Validando...'),
-                          ],
-                        )
-                      : const Text('Entrar'),
+                              SizedBox(width: 10),
+                              Text('Validando...'),
+                            ],
+                          )
+                          : const Text('Entrar'),
                 ),
               ],
             ),
@@ -546,7 +698,9 @@ class _LoginScreenState extends State<LoginScreen> {
 }
 
 class CompanyFormScreen extends StatefulWidget {
-  const CompanyFormScreen({super.key});
+  const CompanyFormScreen({this.apiClient, super.key});
+
+  final ApiClient? apiClient;
 
   @override
   State<CompanyFormScreen> createState() => _CompanyFormScreenState();
@@ -563,7 +717,7 @@ class _CompanyFormScreenState extends State<CompanyFormScreen> {
   final rfcController = TextEditingController();
   final otpController = TextEditingController();
   final addressController = TextEditingController();
-  final apiClient = ApiClient();
+  late final apiClient = widget.apiClient ?? ApiClient();
   String plan = 'Productor';
   bool accepted = false;
   bool showPassword = false;
@@ -585,13 +739,17 @@ class _CompanyFormScreenState extends State<CompanyFormScreen> {
     super.dispose();
   }
 
-  String? requiredValue(String? value) =>
-      (value ?? '').trim().isEmpty ? 'Este campo es obligatorio.' : null;
+  String? requiredValue(String? value) {
+    final text = (value ?? '').trim();
+    if (text.isEmpty) return 'Este campo es obligatorio.';
+    if (text.length < 3) {
+      return 'El nombre comercial debe tener al menos 3 caracteres.';
+    }
+    return null;
+  }
 
   Map<String, Object?> _registrationBody() {
-    final administratorName = nameController.text.trim().split(
-      RegExp(r'\s+'),
-    );
+    final administratorName = nameController.text.trim().split(RegExp(r'\s+'));
     return {
       'nombre': companyController.text.trim(),
       if (legalNameController.text.trim().isNotEmpty)
@@ -677,15 +835,15 @@ class _CompanyFormScreenState extends State<CompanyFormScreen> {
     } on DioException catch (error) {
       if (mounted) {
         final apiError = ApiException.fromDio(error);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(apiError.message)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(apiError.message)));
       }
     } on ApiException catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error.message)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
       }
     } finally {
       if (mounted) setState(() => isSubmitting = false);
@@ -707,9 +865,9 @@ class _CompanyFormScreenState extends State<CompanyFormScreen> {
             Text(
               'Registro empresarial',
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 7),
             Text(
@@ -732,6 +890,10 @@ class _CompanyFormScreenState extends State<CompanyFormScreen> {
                     parts.first.length < 2 ||
                     parts.skip(1).join(' ').length < 2) {
                   return 'Escribe al menos nombre y apellido.';
+                }
+                if (parts.first.length > 80 ||
+                    parts.skip(1).join(' ').length > 80) {
+                  return 'El nombre y apellido deben tener máximo 80 caracteres cada uno.';
                 }
                 return null;
               },
@@ -758,10 +920,12 @@ class _CompanyFormScreenState extends State<CompanyFormScreen> {
               controller: phoneController,
               keyboardType: TextInputType.phone,
               autofillHints: const [AutofillHints.telephoneNumber],
-              decoration: const InputDecoration(labelText: 'Teléfono'),
+              decoration: const InputDecoration(
+                labelText: 'Teléfono (opcional)',
+              ),
               validator: (value) {
                 final digits = (value ?? '').replaceAll(RegExp(r'\D'), '');
-                return digits.length < 10
+                return digits.isNotEmpty && digits.length < 10
                     ? 'Escribe un teléfono de al menos 10 dígitos.'
                     : null;
               },
@@ -775,9 +939,10 @@ class _CompanyFormScreenState extends State<CompanyFormScreen> {
                 labelText: 'Contraseña',
                 helperText: 'Mínimo 8 caracteres',
                 suffixIcon: IconButton(
-                  tooltip: showPassword
-                      ? 'Ocultar contraseña'
-                      : 'Mostrar contraseña',
+                  tooltip:
+                      showPassword
+                          ? 'Ocultar contraseña'
+                          : 'Mostrar contraseña',
                   onPressed: () => setState(() => showPassword = !showPassword),
                   icon: Icon(
                     showPassword
@@ -786,15 +951,18 @@ class _CompanyFormScreenState extends State<CompanyFormScreen> {
                   ),
                 ),
               ),
-              validator: (value) => (value ?? '').length < 8
-                  ? 'Usa al menos 8 caracteres.'
-                  : null,
+              validator:
+                  (value) =>
+                      (value ?? '').length < 8
+                          ? 'Usa al menos 8 caracteres.'
+                          : null,
             ),
             const SizedBox(height: 22),
             const _AccessFormSection('Empresa'),
             TextFormField(
               controller: companyController,
               textCapitalization: TextCapitalization.words,
+              maxLength: 150,
               decoration: const InputDecoration(labelText: 'Nombre comercial'),
               validator: requiredValue,
             ),
@@ -802,8 +970,17 @@ class _CompanyFormScreenState extends State<CompanyFormScreen> {
             TextFormField(
               controller: legalNameController,
               textCapitalization: TextCapitalization.words,
-              decoration: const InputDecoration(labelText: 'Razón social'),
-              validator: requiredValue,
+              maxLength: 200,
+              decoration: const InputDecoration(
+                labelText: 'Razón social (opcional)',
+              ),
+              validator: (value) {
+                final legalName = (value ?? '').trim();
+                if (legalName.isNotEmpty && legalName.length < 3) {
+                  return 'Escribe al menos 3 caracteres o deja el campo vacío.';
+                }
+                return null;
+              },
             ),
             const SizedBox(height: 16),
             TextFormField(
@@ -811,11 +988,12 @@ class _CompanyFormScreenState extends State<CompanyFormScreen> {
               textCapitalization: TextCapitalization.characters,
               maxLength: 13,
               decoration: const InputDecoration(
-                labelText: 'RFC',
+                labelText: 'RFC (opcional)',
                 counterText: '',
               ),
               validator: (value) {
                 final rfc = (value ?? '').trim().toUpperCase();
+                if (rfc.isEmpty) return null;
                 if (!RegExp(r'^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$').hasMatch(rfc)) {
                   return 'Escribe un RFC válido de 12 o 13 caracteres.';
                 }
@@ -868,31 +1046,38 @@ class _CompanyFormScreenState extends State<CompanyFormScreen> {
               contentPadding: EdgeInsets.zero,
               controlAffinity: ListTileControlAffinity.leading,
               value: accepted,
-              onChanged: (value) => setState(() {
-                accepted = value ?? false;
-                showAcceptedError = false;
-              }),
+              onChanged:
+                  (value) => setState(() {
+                    accepted = value ?? false;
+                    showAcceptedError = false;
+                  }),
               title: const Text(
                 'Acepto continuar con el plan seleccionado.',
                 style: TextStyle(fontSize: 12),
               ),
-              subtitle: showAcceptedError
-                  ? const Text(
-                      'Debes aceptar el plan para continuar.',
-                      style: TextStyle(color: AppColors.red),
-                    )
-                  : null,
+              subtitle:
+                  showAcceptedError
+                      ? const Text(
+                        'Debes aceptar el plan para continuar.',
+                        style: TextStyle(color: AppColors.red),
+                      )
+                      : null,
             ),
             const SizedBox(height: 8),
             FilledButton(
               onPressed: isSubmitting ? null : submit,
-              child: isSubmitting
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Text(otpRequested ? 'Verificar y crear cuenta' : 'Enviar código'),
+              child:
+                  isSubmitting
+                      ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                      : Text(
+                        otpRequested
+                            ? 'Verificar y crear cuenta'
+                            : 'Enviar código',
+                      ),
             ),
             const SizedBox(height: 12),
             Wrap(
@@ -964,26 +1149,28 @@ class AppShell extends StatelessWidget {
     final role = store.role;
     final destinations = switch (role) {
       UserRole.admin => const [
-          ('home', 'Tablero', AppGlyphType.dashboard, '/home'),
-          ('cycles', 'Ciclos', AppGlyphType.sprout, '/cycles'),
-          ('capture', 'Capturar', AppGlyphType.add, '/capture'),
-          ('more', 'Más', AppGlyphType.more, '/more'),
-        ],
+        ('home', 'Tablero', AppGlyphType.dashboard, '/home'),
+        ('cycles', 'Ciclos', AppGlyphType.sprout, '/cycles'),
+        ('capture', 'Capturar', AppGlyphType.add, '/capture'),
+        ('more', 'Más', AppGlyphType.more, '/more'),
+      ],
       UserRole.capturista => const [
-          ('capture', 'Capturar', AppGlyphType.add, '/capture'),
-          ('cycles', 'Mis ciclos', AppGlyphType.sprout, '/cycles'),
-          ('records', 'Bitácora', AppGlyphType.records, '/records'),
-          ('more', 'Más', AppGlyphType.more, '/more'),
-        ],
+        ('capture', 'Capturar', AppGlyphType.add, '/capture'),
+        ('cycles', 'Mis ciclos', AppGlyphType.sprout, '/cycles'),
+        ('records', 'Bitácora', AppGlyphType.records, '/records'),
+        ('more', 'Más', AppGlyphType.more, '/more'),
+      ],
       UserRole.contador => const [
-          ('home', 'Finanzas', AppGlyphType.chart, '/home'),
-          ('sales', 'Ventas', AppGlyphType.sales, '/sales'),
-          ('cycles', 'Ciclos', AppGlyphType.sprout, '/cycles'),
-          ('more', 'Más', AppGlyphType.more, '/more'),
-        ],
+        ('home', 'Finanzas', AppGlyphType.chart, '/home'),
+        ('sales', 'Ventas', AppGlyphType.sales, '/sales'),
+        ('cycles', 'Ciclos', AppGlyphType.sprout, '/cycles'),
+        ('more', 'Más', AppGlyphType.more, '/more'),
+      ],
     };
-    final selected =
-        math.max(0, destinations.indexWhere((item) => item.$1 == current));
+    final selected = math.max(
+      0,
+      destinations.indexWhere((item) => item.$1 == current),
+    );
     return Scaffold(
       appBar: AppBar(
         title: Text(title),
@@ -991,16 +1178,17 @@ class AppShell extends StatelessWidget {
           if (role != UserRole.capturista)
             IconButton(
               onPressed: () => context.push('/alerts'),
-              icon: store.alerts.isEmpty
-                  ? const Icon(Icons.notifications_none_rounded, size: 28)
-                  : Badge(
-                      backgroundColor: AppColors.red,
-                      label: Text('${store.alerts.length}'),
-                      child: const Icon(
-                        Icons.notifications_none_rounded,
-                        size: 28,
+              icon:
+                  store.alerts.isEmpty
+                      ? const Icon(Icons.notifications_none_rounded, size: 28)
+                      : Badge(
+                        backgroundColor: AppColors.red,
+                        label: Text('${store.alerts.length}'),
+                        child: const Icon(
+                          Icons.notifications_none_rounded,
+                          size: 28,
+                        ),
                       ),
-                    ),
             ),
           if (current == 'more')
             IconButton(
@@ -1010,16 +1198,19 @@ class AppShell extends StatelessWidget {
                   await context.read<AppStore>().signOut();
                 } on ApiException catch (error) {
                   if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(error.message)),
-                    );
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(SnackBar(content: Text(error.message)));
                   }
                 } finally {
                   if (context.mounted) context.go('/login');
                 }
               },
-              icon: const Icon(Icons.logout_rounded,
-                  size: 30, color: AppColors.red),
+              icon: const Icon(
+                Icons.logout_rounded,
+                size: 30,
+                color: AppColors.red,
+              ),
             ),
           const SizedBox(width: 8),
         ],
@@ -1036,18 +1227,20 @@ class AppShell extends StatelessWidget {
             destinations: [
               for (final item in destinations)
                 NavigationDestination(
-                  icon: item.$1 == 'records'
-                      ? Badge(
-                          label: Text(
-                              '${context.watch<AppStore>().records.length}'),
-                          child: AppGlyph(item.$3, size: 28),
-                        )
-                      : AppGlyph(item.$3, size: 28),
+                  icon:
+                      item.$1 == 'records'
+                          ? Badge(
+                            label: Text(
+                              '${context.watch<AppStore>().records.length}',
+                            ),
+                            child: AppGlyph(item.$3, size: 28),
+                          )
+                          : AppGlyph(item.$3, size: 28),
                   label: item.$2,
                 ),
             ],
-            onDestinationSelected: (index) =>
-                context.go(destinations[index].$4),
+            onDestinationSelected:
+                (index) => context.go(destinations[index].$4),
           ),
         ),
       ),
@@ -1062,8 +1255,10 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
     if (store.role == UserRole.capturista) return const CaptureHomeScreen();
-    final income =
-        store.cycles.fold<double>(0, (sum, item) => sum + item.income);
+    final income = store.cycles.fold<double>(
+      0,
+      (sum, item) => sum + item.income,
+    );
     final cost = store.cycles
         .where((item) => item.status != CycleStatus.planificado)
         .fold<double>(0, (sum, item) => sum + item.cost);
@@ -1071,10 +1266,40 @@ class HomeScreen extends StatelessWidget {
       0,
       (sum, sale) => sum + (sale.cancelled ? 0 : sale.total - sale.paid),
     );
+    final harvestedKg = store.cycles.fold<double>(
+      0,
+      (sum, cycle) => sum + cycle.harvestedKg,
+    );
+    final lostKg = store.records
+        .where((record) => record.kind == 'Merma')
+        .fold<double>(0, (sum, record) => sum + (record.value ?? 0));
+    final soldKg = store.sales
+        .where((sale) => !sale.cancelled)
+        .fold<double>(0, (sum, sale) => sum + sale.kg);
+    final availableKg = store.cycles.fold<double>(
+      0,
+      (sum, cycle) => sum + store.availableKg(cycle),
+    );
+    final plantedArea = store.cycles.fold<double>(
+      0,
+      (sum, cycle) => sum + cycle.area,
+    );
+    final costPerKg = harvestedKg == 0 ? 0 : cost / harvestedKg;
+    final yieldPerHa = plantedArea == 0 ? 0 : harvestedKg / plantedArea;
+    final salesKg = soldKg;
+    final averagePricePerKg =
+        salesKg == 0
+            ? 0
+            : store.sales
+                    .where((sale) => !sale.cancelled)
+                    .fold<double>(0, (sum, sale) => sum + sale.total) /
+                salesKg;
+    final costCoverage = costPerKg == 0 ? 0 : averagePricePerKg / costPerKg;
     return AppShell(
-      title: store.role == UserRole.contador
-          ? 'Finanzas'
-          : 'Buen día, ${store.currentUser.name.split(' ').first}',
+      title:
+          store.role == UserRole.contador
+              ? 'Finanzas'
+              : 'Buen día, ${store.currentUser.name.split(' ').first}',
       current: 'home',
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
@@ -1105,8 +1330,11 @@ class HomeScreen extends StatelessWidget {
                 color: Colors.white.withValues(alpha: .13),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.trending_up_rounded,
-                  color: Colors.white, size: 30),
+              child: const Icon(
+                Icons.trending_up_rounded,
+                color: Colors.white,
+                size: 30,
+              ),
             ),
           ),
           if (store.role == UserRole.admin) ...[
@@ -1141,9 +1369,10 @@ class HomeScreen extends StatelessWidget {
             physics: const NeverScrollableScrollPhysics(),
             children: [
               StatTile(
-                  label: 'Ingresos',
-                  value: money.format(income),
-                  icon: Icons.savings_rounded),
+                label: 'Ingresos',
+                value: money.format(income),
+                icon: Icons.savings_rounded,
+              ),
               StatTile(
                 label: 'Costo total',
                 value: money.format(cost),
@@ -1153,7 +1382,7 @@ class HomeScreen extends StatelessWidget {
               StatTile(
                 label: 'Margen',
                 value:
-                    '${((income - cost) / income * 100).toStringAsFixed(1)}%',
+                    '${(income == 0 ? 0 : (income - cost) / income * 100).toStringAsFixed(1)}%',
                 icon: Icons.percent_rounded,
               ),
               StatTile(
@@ -1166,66 +1395,90 @@ class HomeScreen extends StatelessWidget {
           ),
           const SizedBox(height: 20),
           MonthlySummary(income: income, cost: cost),
-          const SizedBox(height: 24),
-          const SectionTitle('Punto de equilibrio'),
-          const SizedBox(height: 12),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _Metric(
+          if (harvestedKg > 0 && salesKg > 0) ...[
+            const SizedBox(height: 24),
+            const SectionTitle('Costo y precio por kilogramo'),
+            const SizedBox(height: 12),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _Metric(
                             label: 'Costo por kg',
-                            value: moneyExact.format(10.49)),
-                      ),
-                      Expanded(
-                        child: _Metric(
+                            value: moneyExact.format(costPerKg),
+                          ),
+                        ),
+                        Expanded(
+                          child: _Metric(
                             label: 'Precio promedio',
-                            value: moneyExact.format(14.76)),
-                      ),
-                    ],
+                            value: moneyExact.format(averagePricePerKg),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    MiniBar(
+                      label: 'Precio contra costo',
+                      value:
+                          costCoverage >= 1
+                              ? 'Cubre el costo'
+                              : 'No cubre el costo',
+                      progress: costCoverage.clamp(0, 1).toDouble(),
+                      color:
+                          costCoverage >= 1 ? AppColors.green : AppColors.amber,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+          if (harvestedKg > 0 || lostKg > 0) ...[
+            const SizedBox(height: 24),
+            const SectionTitle('Producción'),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColors.greenSurface,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: AppColors.strongGreenSurface),
+              ),
+              child: Wrap(
+                runSpacing: 16,
+                children: [
+                  _CompactStat(
+                    label: 'Cosechado',
+                    value: '${quantity.format(harvestedKg)} kg',
                   ),
-                  const SizedBox(height: 20),
-                  const MiniBar(
-                    label: 'Cobertura del costo',
-                    value: '41% arriba',
-                    progress: .71,
+                  _CompactStat(
+                    label: 'Merma',
+                    value: '${quantity.format(lostKg)} kg',
                   ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'La marca verde representa el precio promedio de venta.',
-                    style: Theme.of(context).textTheme.bodySmall,
+                  _CompactStat(
+                    label: 'Vendido',
+                    value: '${quantity.format(soldKg)} kg',
+                  ),
+                  _CompactStat(
+                    label: 'Disponible',
+                    value: '${quantity.format(availableKg)} kg',
+                  ),
+                  _CompactStat(
+                    label: 'Costo por kg',
+                    value: moneyExact.format(costPerKg),
+                  ),
+                  _CompactStat(
+                    label: 'Rendimiento',
+                    value: '${quantity.format(yieldPerHa)} kg/ha',
                   ),
                 ],
               ),
             ),
-          ),
-          const SizedBox(height: 24),
-          const SectionTitle('Producción'),
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.greenSurface,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: AppColors.strongGreenSurface),
-            ),
-            child: const Wrap(
-              runSpacing: 16,
-              children: [
-                _CompactStat(label: 'Cosechado', value: '23,800 kg'),
-                _CompactStat(label: 'Merma poscosecha', value: '620 kg'),
-                _CompactStat(label: 'Merma en campo', value: '410 kg'),
-                _CompactStat(label: 'Disponibles', value: '2,200 kg'),
-                _CompactStat(label: 'Costo / ha', value: '\$24,705'),
-                _CompactStat(label: 'Rendimiento', value: '2,070 kg/ha'),
-              ],
-            ),
-          ),
+          ],
           const SizedBox(height: 24),
           SectionTitle(
             'Alertas',
@@ -1235,20 +1488,28 @@ class HomeScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          const InfoBanner(
-            title: 'Cobro vencido · severidad alta',
-            text: 'V-1037 tiene 12 días de atraso. Saldo pendiente: \$26,600.',
-            tone: AppColors.red,
-            icon: Icons.warning_rounded,
-          ),
-          const SizedBox(height: 10),
-          const InfoBanner(
-            title: 'Cobro tardío',
-            text:
-                'V-1042 no registra movimiento desde hace 8 días. Saldo: \$20,000.',
-            tone: AppColors.amber,
-            icon: Icons.schedule_rounded,
-          ),
+          if (store.alerts.isEmpty)
+            const EmptyState(
+              title: 'Sin alertas',
+              message: 'Las alertas aparecerán cuando haya datos que revisar.',
+              actionLabel: 'Entendido',
+              onAction: _noop,
+            )
+          else
+            for (final alert in store.alerts) ...[
+              InfoBanner(
+                title: alert.title,
+                text: alert.detail,
+                tone:
+                    alert.severity.toLowerCase() == 'alta'
+                        ? AppColors.red
+                        : alert.severity.toLowerCase() == 'media'
+                        ? AppColors.amber
+                        : AppColors.green,
+                icon: Icons.notifications_active_outlined,
+              ),
+              const SizedBox(height: 10),
+            ],
           const SizedBox(height: 24),
           SectionTitle(
             'Rentabilidad por ciclo',
@@ -1258,10 +1519,19 @@ class HomeScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          for (final cycle in store.cycles) ...[
-            CycleCard(cycle: cycle),
-            const SizedBox(height: 12),
-          ],
+          if (store.cycles.isEmpty)
+            EmptyState(
+              title: 'Aún no hay ciclos',
+              message:
+                  'Registra tu predio y una parcela para poder crear el primer ciclo.',
+              actionLabel: 'Configurar predios',
+              onAction: () => context.push('/module/predios'),
+            )
+          else
+            for (final cycle in store.cycles) ...[
+              CycleCard(cycle: cycle),
+              const SizedBox(height: 12),
+            ],
         ],
       ),
     );
@@ -1278,25 +1548,24 @@ class _Metric extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label.toUpperCase(),
-            style: Theme.of(context).textTheme.labelMedium),
+        Text(
+          label.toUpperCase(),
+          style: Theme.of(context).textTheme.labelMedium,
+        ),
         const SizedBox(height: 4),
-        Text(value,
-            style: Theme.of(context)
-                .textTheme
-                .headlineSmall
-                ?.copyWith(fontSize: 23)),
+        Text(
+          value,
+          style: Theme.of(
+            context,
+          ).textTheme.headlineSmall?.copyWith(fontSize: 23),
+        ),
       ],
     );
   }
 }
 
 class MonthlySummary extends StatefulWidget {
-  const MonthlySummary({
-    required this.income,
-    required this.cost,
-    super.key,
-  });
+  const MonthlySummary({required this.income, required this.cost, super.key});
 
   final double income;
   final double cost;
@@ -1306,36 +1575,13 @@ class MonthlySummary extends StatefulWidget {
 }
 
 class _MonthlySummaryState extends State<MonthlySummary> {
-  static const periods = <String, _ChartPeriod>{
-    'Sem': _ChartPeriod(
-      labels: ['Lun', 'Mar', 'Mié', 'Jue', 'Vie'],
-      income: [34, 42, 51, 48, 62],
-      cost: [25, 29, 34, 31, 40],
-    ),
-    'Mes': _ChartPeriod(
-      labels: ['Sem 1', 'Sem 2', 'Sem 3', 'Sem 4'],
-      income: [52, 68, 61, 86],
-      cost: [38, 45, 43, 56],
-    ),
-    'Año': _ChartPeriod(
-      labels: ['T1', 'T2', 'T3', 'T4'],
-      income: [58, 72, 81, 92],
-      cost: [44, 53, 59, 67],
-    ),
-  };
-
-  String selectedPeriod = 'Mes';
-
   @override
   Widget build(BuildContext context) {
-    final data = periods[selectedPeriod]!;
-    final maxValue = data.income.fold<int>(
-      0,
-      (maximum, value) => math.max(maximum, value),
-    );
-    final margin = widget.income == 0
-        ? 0
-        : ((widget.income - widget.cost) / widget.income * 100);
+    final maxValue = math.max(widget.income, widget.cost);
+    final margin =
+        widget.income == 0
+            ? 0
+            : ((widget.income - widget.cost) / widget.income * 100);
 
     return Card(
       child: Padding(
@@ -1350,161 +1596,52 @@ class _MonthlySummaryState extends State<MonthlySummary> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'DATOS EN TIEMPO REAL',
+                        'DATOS REGISTRADOS',
                         style: Theme.of(context).textTheme.labelSmall,
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Resumen mensual',
+                        'Resumen financiero',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                     ],
                   ),
                 ),
-                SegmentedButton<String>(
-                  showSelectedIcon: false,
-                  style: const ButtonStyle(
-                    visualDensity: VisualDensity.compact,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  segments: const [
-                    ButtonSegment(value: 'Sem', label: Text('Sem')),
-                    ButtonSegment(value: 'Mes', label: Text('Mes')),
-                    ButtonSegment(value: 'Año', label: Text('Año')),
-                  ],
-                  selected: {selectedPeriod},
-                  onSelectionChanged: (selection) {
-                    setState(() => selectedPeriod = selection.first);
-                  },
-                ),
               ],
+            ),
+            const SizedBox(height: 20),
+            MiniBar(
+              label: 'Ingresos',
+              value: money.format(widget.income),
+              progress: maxValue == 0 ? 0 : widget.income / maxValue,
             ),
             const SizedBox(height: 16),
-            const Row(
-              children: [
-                _ChartLegend(color: AppColors.green, label: 'Ingresos'),
-                SizedBox(width: 16),
-                _ChartLegend(color: AppColors.earth, label: 'Gastos'),
-              ],
+            MiniBar(
+              label: 'Gastos',
+              value: money.format(widget.cost),
+              progress: maxValue == 0 ? 0 : widget.cost / maxValue,
+              color: AppColors.earth,
             ),
-            const SizedBox(height: 14),
-            SizedBox(
-              height: 116,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  for (var index = 0; index < data.labels.length; index++)
-                    Expanded(
-                      child: Column(
-                        children: [
-                          Expanded(
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                _ComparisonBar(
-                                  value: data.income[index],
-                                  maxValue: maxValue,
-                                  color: AppColors.green,
-                                ),
-                                _ComparisonBar(
-                                  value: data.cost[index],
-                                  maxValue: maxValue,
-                                  color: AppColors.earth,
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            data.labels[index],
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.labelSmall,
-                          ),
-                        ],
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 20),
             const Divider(height: 1),
             const SizedBox(height: 14),
             Row(
               children: [
                 _SummaryMetric(
-                    label: 'INGRESOS', value: money.format(widget.income)),
+                  label: 'INGRESOS',
+                  value: money.format(widget.income),
+                ),
                 _SummaryMetric(
-                    label: 'GASTOS', value: money.format(widget.cost)),
+                  label: 'GASTOS',
+                  value: money.format(widget.cost),
+                ),
                 _SummaryMetric(
-                    label: 'MARGEN', value: '${margin.toStringAsFixed(1)}%'),
+                  label: 'MARGEN',
+                  value: '${margin.toStringAsFixed(1)}%',
+                ),
               ],
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ChartPeriod {
-  const _ChartPeriod({
-    required this.labels,
-    required this.income,
-    required this.cost,
-  });
-
-  final List<String> labels;
-  final List<int> income;
-  final List<int> cost;
-}
-
-class _ChartLegend extends StatelessWidget {
-  const _ChartLegend({required this.color, required this.label});
-
-  final Color color;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 9,
-          height: 9,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 6),
-        Text(label, style: Theme.of(context).textTheme.bodySmall),
-      ],
-    );
-  }
-}
-
-class _ComparisonBar extends StatelessWidget {
-  const _ComparisonBar({
-    required this.value,
-    required this.maxValue,
-    required this.color,
-  });
-
-  final int value;
-  final int maxValue;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Align(
-        alignment: Alignment.bottomCenter,
-        child: Container(
-          width: 12,
-          height: 84 * value / maxValue,
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
-          ),
         ),
       ),
     );
@@ -1538,6 +1675,7 @@ class _SummaryMetric extends StatelessWidget {
 
 class _CompactStat extends StatelessWidget {
   const _CompactStat({required this.label, required this.value});
+
   final String label;
   final String value;
 
@@ -1548,12 +1686,15 @@ class _CompactStat extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label.toUpperCase(),
-              style: Theme.of(context).textTheme.labelMedium),
+          Text(
+            label.toUpperCase(),
+            style: Theme.of(context).textTheme.labelMedium,
+          ),
           const SizedBox(height: 4),
-          Text(value,
-              style:
-                  const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+          Text(
+            value,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+          ),
         ],
       ),
     );
@@ -1575,9 +1716,10 @@ class CaptureHomeScreen extends StatelessWidget {
         ('Nuevo ciclo', Icons.add_business_rounded, 'cycle'),
     ];
     return AppShell(
-      title: store.role == UserRole.capturista
-          ? 'Hola, ${store.currentUser.name.split(' ').first}'
-          : 'Captura rápida',
+      title:
+          store.role == UserRole.capturista
+              ? 'Hola, ${store.currentUser.name.split(' ').first}'
+              : 'Captura rápida',
       current: 'capture',
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => context.push('/form/activity'),
@@ -1632,9 +1774,10 @@ class CaptureHomeScreen extends StatelessWidget {
                             children: [
                               IconBox(option.$2),
                               const Spacer(),
-                              Text(option.$1,
-                                  style:
-                                      Theme.of(context).textTheme.titleMedium),
+                              Text(
+                                option.$1,
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
                               const SizedBox(height: 2),
                               const Text('Nuevo registro'),
                             ],
@@ -1670,23 +1813,26 @@ class CaptureHomeScreen extends StatelessWidget {
                   _RecordCount(
                     icon: Icons.inventory_2_rounded,
                     label: 'cosechas',
-                    count: store.records
-                        .where((item) => item.kind == 'Cosecha')
-                        .length,
+                    count:
+                        store.records
+                            .where((item) => item.kind == 'Cosecha')
+                            .length,
                   ),
                   _RecordCount(
                     icon: Icons.receipt_long_rounded,
                     label: 'gastos',
-                    count: store.records
-                        .where((item) => item.kind == 'Gasto')
-                        .length,
+                    count:
+                        store.records
+                            .where((item) => item.kind == 'Gasto')
+                            .length,
                   ),
                   _RecordCount(
                     icon: Icons.agriculture_rounded,
                     label: 'actividades',
-                    count: store.records
-                        .where((item) => item.kind == 'Actividad')
-                        .length,
+                    count:
+                        store.records
+                            .where((item) => item.kind == 'Actividad')
+                            .length,
                   ),
                 ],
               ),
@@ -1714,10 +1860,10 @@ class CaptureHomeScreen extends StatelessWidget {
                         child: _RecentRecordCard(
                           record: record,
                           editable: !store.isAuthenticated,
-                          onEdit: () =>
-                              _editRecentRecord(context, store, record),
-                          onDelete: () =>
-                              _deleteRecentRecord(context, store, record),
+                          onEdit:
+                              () => _editRecentRecord(context, store, record),
+                          onDelete:
+                              () => _deleteRecentRecord(context, store, record),
                         ),
                       );
                     },
@@ -1749,22 +1895,22 @@ class _RecordsChart extends StatelessWidget {
       (
         'Cosecha',
         AppColors.green,
-        records.where((item) => item.kind == 'Cosecha').length
+        records.where((item) => item.kind == 'Cosecha').length,
       ),
       (
         'Gasto',
         AppColors.earth,
-        records.where((item) => item.kind == 'Gasto').length
+        records.where((item) => item.kind == 'Gasto').length,
       ),
       (
         'Actividad',
         AppColors.blue,
-        records.where((item) => item.kind == 'Actividad').length
+        records.where((item) => item.kind == 'Actividad').length,
       ),
       (
         'Merma',
         AppColors.amber,
-        records.where((item) => item.kind == 'Merma').length
+        records.where((item) => item.kind == 'Merma').length,
       ),
     ];
     final maxValue = values.fold<int>(1, (max, item) => math.max(max, item.$3));
@@ -1791,15 +1937,21 @@ class _RecordsChart extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Resumen de movimientos',
-                          style: Theme.of(context).textTheme.titleMedium),
-                      Text('Distribución actual',
-                          style: Theme.of(context).textTheme.bodySmall),
+                      Text(
+                        'Resumen de movimientos',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      Text(
+                        'Distribución actual',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
                     ],
                   ),
                 ),
-                Text('${records.length}',
-                    style: Theme.of(context).textTheme.headlineSmall),
+                Text(
+                  '${records.length}',
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
               ],
             ),
             const SizedBox(height: 16),
@@ -1808,8 +1960,10 @@ class _RecordsChart extends StatelessWidget {
                 children: [
                   SizedBox(
                     width: 76,
-                    child: Text(item.$1,
-                        style: Theme.of(context).textTheme.labelMedium),
+                    child: Text(
+                      item.$1,
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
                   ),
                   Expanded(
                     child: ClipRRect(
@@ -1859,9 +2013,10 @@ class _RecentRecordCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = _recordColor(record.kind);
-    final displayValue = record.value == null
-        ? null
-        : record.unit == 'MXN'
+    final displayValue =
+        record.value == null
+            ? null
+            : record.unit == 'MXN'
             ? money.format(record.value)
             : '${quantity.format(record.value)} kg';
     return Card(
@@ -1880,8 +2035,8 @@ class _RecentRecordCard extends StatelessWidget {
                     record.kind == 'Cobro'
                         ? 'Pagado'
                         : record.kind == 'Venta'
-                            ? 'Pendiente'
-                            : 'Borrador',
+                        ? 'Pendiente'
+                        : 'Borrador',
                     color,
                     icon: Icons.circle,
                   ),
@@ -1906,8 +2061,10 @@ class _RecentRecordCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(record.title,
-                            style: Theme.of(context).textTheme.titleMedium),
+                        Text(
+                          record.title,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
                         const SizedBox(height: 3),
                         Text(
                           record.detail,
@@ -1926,9 +2083,9 @@ class _RecentRecordCard extends StatelessWidget {
                     child: Text(
                       displayValue ?? record.kind,
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            color: AppColors.green,
-                            fontWeight: FontWeight.w600,
-                          ),
+                        color: AppColors.green,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                   if (editable) ...[
@@ -1982,21 +2139,21 @@ class _RecordCount extends StatelessWidget {
 }
 
 IconData _recordIcon(String kind) => switch (kind) {
-      'Cosecha' => Icons.inventory_2_rounded,
-      'Gasto' => Icons.receipt_long_rounded,
-      'Venta' => Icons.local_shipping_rounded,
-      'Cobro' => Icons.payments_rounded,
-      _ => Icons.agriculture_rounded,
-    };
+  'Cosecha' => Icons.inventory_2_rounded,
+  'Gasto' => Icons.receipt_long_rounded,
+  'Venta' => Icons.local_shipping_rounded,
+  'Cobro' => Icons.payments_rounded,
+  _ => Icons.agriculture_rounded,
+};
 
 Color _recordColor(String kind) => switch (kind) {
-      'Gasto' => AppColors.earth,
-      'Merma' => AppColors.amber,
-      'Venta' => AppColors.blue,
-      'Cobro' => AppColors.green,
-      'Ciclo' => AppColors.blue,
-      _ => AppColors.green,
-    };
+  'Gasto' => AppColors.earth,
+  'Merma' => AppColors.amber,
+  'Venta' => AppColors.blue,
+  'Cobro' => AppColors.green,
+  'Ciclo' => AppColors.blue,
+  _ => AppColors.green,
+};
 
 Future<void> _deleteRecentRecord(
   BuildContext context,
@@ -2005,24 +2162,25 @@ Future<void> _deleteRecentRecord(
 ) async {
   final confirmed = await showDialog<bool>(
     context: context,
-    builder: (dialogContext) => AlertDialog(
-      icon: const AppGlyph(AppGlyphType.delete, color: AppColors.red),
-      title: const Text('¿Eliminar registro?'),
-      content: Text(
-        'Se quitará “${record.title}” y se actualizarán de inmediato la gráfica y los indicadores.',
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(dialogContext, false),
-          child: const Text('Cancelar'),
+    builder:
+        (dialogContext) => AlertDialog(
+          icon: const AppGlyph(AppGlyphType.delete, color: AppColors.red),
+          title: const Text('¿Eliminar registro?'),
+          content: Text(
+            'Se quitará “${record.title}” y se actualizarán de inmediato la gráfica y los indicadores.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              style: FilledButton.styleFrom(backgroundColor: AppColors.red),
+              child: const Text('Eliminar'),
+            ),
+          ],
         ),
-        FilledButton(
-          onPressed: () => Navigator.pop(dialogContext, true),
-          style: FilledButton.styleFrom(backgroundColor: AppColors.red),
-          child: const Text('Eliminar'),
-        ),
-      ],
-    ),
   );
   if (confirmed != true || !context.mounted) return;
   final index = store.deleteRecord(record);
@@ -2058,160 +2216,189 @@ Future<void> _editRecentRecord(
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
     ),
-    builder: (sheetContext) => StatefulBuilder(
-      builder: (sheetContext, setSheetState) => Padding(
-        padding:
-            EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(sheetContext).bottom),
-        child: SafeArea(
-          top: false,
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-            child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Center(
-                child: Container(
-                  width: 32,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.outline,
-                    borderRadius: BorderRadius.circular(4),
+    builder:
+        (sheetContext) => StatefulBuilder(
+          builder:
+              (sheetContext, setSheetState) => Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
+                ),
+                child: SafeArea(
+                  top: false,
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Center(
+                          child: Container(
+                            width: 32,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.outline,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        Text(
+                          'Editar registro',
+                          style: Theme.of(context).textTheme.headlineSmall,
+                        ),
+                        const SizedBox(height: 24),
+                        TextField(
+                          controller: title,
+                          decoration: const InputDecoration(
+                            labelText: 'Concepto',
+                            helperText:
+                                'Identifica el movimiento en la bitácora.',
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          initialValue: selectedKind,
+                          decoration: const InputDecoration(
+                            labelText: 'Categoría',
+                            helperText:
+                                'Clasificación usada por reportes y gráficos.',
+                          ),
+                          items:
+                              [
+                                    'Actividad',
+                                    'Gasto',
+                                    'Cosecha',
+                                    'Merma',
+                                    'Venta',
+                                    'Cobro',
+                                    'Ciclo',
+                                  ]
+                                  .map(
+                                    (item) => DropdownMenuItem(
+                                      value: item,
+                                      child: Text(item),
+                                    ),
+                                  )
+                                  .toList(),
+                          onChanged: (value) {
+                            if (value != null) {
+                              setSheetState(() => selectedKind = value);
+                            }
+                          },
+                        ),
+                        if (selectedKind == 'Gasto' ||
+                            selectedKind == 'Cosecha') ...[
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: value,
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                            decoration: InputDecoration(
+                              labelText:
+                                  selectedKind == 'Gasto'
+                                      ? 'Monto del gasto'
+                                      : 'Cantidad cosechada',
+                              prefixText:
+                                  selectedKind == 'Gasto' ? '\$ ' : null,
+                              suffixText:
+                                  selectedKind == 'Cosecha' ? ' kg' : null,
+                              helperText:
+                                  'Actualiza automáticamente los indicadores del ciclo.',
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 12),
+                        TextField(
+                          readOnly: true,
+                          decoration: InputDecoration(
+                            labelText: 'Fecha',
+                            hintText: DateFormat(
+                              'dd/MM/yyyy',
+                              'es_MX',
+                            ).format(record.date),
+                            suffixIcon: const Icon(
+                              Icons.calendar_today_outlined,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: detail,
+                          maxLines: 3,
+                          decoration: const InputDecoration(
+                            labelText: 'Notas',
+                            helperText: 'Información adicional del registro.',
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        const InfoBanner(
+                          title: 'Edición sincronizada',
+                          text:
+                              'El cambio se reflejará en la bitácora y las vistas relacionadas en memoria.',
+                          tone: AppColors.blue,
+                          icon: Icons.sync_rounded,
+                        ),
+                        const SizedBox(height: 20),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(sheetContext),
+                              child: const Text('Cancelar'),
+                            ),
+                            const SizedBox(width: 8),
+                            FilledButton.icon(
+                              onPressed: () {
+                                if (title.text.trim().isEmpty) return;
+                                final hasMetric =
+                                    selectedKind == 'Gasto' ||
+                                    selectedKind == 'Cosecha';
+                                final metric =
+                                    hasMetric
+                                        ? double.tryParse(value.text)
+                                        : null;
+                                if (hasMetric &&
+                                    (metric == null || metric <= 0)) {
+                                  return;
+                                }
+                                final syncedDetail =
+                                    selectedKind == 'Gasto'
+                                        ? detail.text.replaceFirst(
+                                          RegExp(r'\$[0-9,.]+'),
+                                          moneyExact.format(metric),
+                                        )
+                                        : selectedKind == 'Cosecha'
+                                        ? detail.text.replaceFirst(
+                                          RegExp(
+                                            r'[0-9,.]+\s*(?:kg|ton|caja(?:\s+18\s+kg)?)',
+                                            caseSensitive: false,
+                                          ),
+                                          '${quantity.format(metric)} kg',
+                                        )
+                                        : detail.text;
+                                store.editRecord(
+                                  record,
+                                  title.text.trim(),
+                                  syncedDetail.trim(),
+                                  kind: selectedKind,
+                                  value: metric,
+                                );
+                                Navigator.pop(sheetContext);
+                              },
+                              icon: const Icon(
+                                Icons.check_circle_outline_rounded,
+                              ),
+                              label: const Text('Guardar'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-              const SizedBox(height: 24),
-              Text('Editar registro',
-                  style: Theme.of(context).textTheme.headlineSmall),
-              const SizedBox(height: 24),
-              TextField(
-                controller: title,
-                decoration: const InputDecoration(
-                  labelText: 'Concepto',
-                  helperText: 'Identifica el movimiento en la bitácora.',
-                ),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: selectedKind,
-                decoration: const InputDecoration(
-                  labelText: 'Categoría',
-                  helperText: 'Clasificación usada por reportes y gráficos.',
-                ),
-                items: [
-                  'Actividad',
-                  'Gasto',
-                  'Cosecha',
-                  'Merma',
-                  'Venta',
-                  'Cobro',
-                  'Ciclo'
-                ]
-                    .map((item) =>
-                        DropdownMenuItem(value: item, child: Text(item)))
-                    .toList(),
-                onChanged: (value) {
-                  if (value != null) {
-                    setSheetState(() => selectedKind = value);
-                  }
-                },
-              ),
-              if (selectedKind == 'Gasto' || selectedKind == 'Cosecha') ...[
-                const SizedBox(height: 12),
-                TextField(
-                  controller: value,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  decoration: InputDecoration(
-                    labelText: selectedKind == 'Gasto'
-                        ? 'Monto del gasto'
-                        : 'Cantidad cosechada',
-                    prefixText: selectedKind == 'Gasto' ? '\$ ' : null,
-                    suffixText: selectedKind == 'Cosecha' ? ' kg' : null,
-                    helperText:
-                        'Actualiza automáticamente los indicadores del ciclo.',
-                  ),
-                ),
-              ],
-              const SizedBox(height: 12),
-              TextField(
-                readOnly: true,
-                decoration: InputDecoration(
-                  labelText: 'Fecha',
-                  hintText:
-                      DateFormat('dd/MM/yyyy', 'es_MX').format(record.date),
-                  suffixIcon: const Icon(Icons.calendar_today_outlined),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: detail,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  labelText: 'Notas',
-                  helperText: 'Información adicional del registro.',
-                ),
-              ),
-              const SizedBox(height: 12),
-              const InfoBanner(
-                title: 'Edición sincronizada',
-                text:
-                    'El cambio se reflejará en la bitácora y las vistas relacionadas en memoria.',
-                tone: AppColors.blue,
-                icon: Icons.sync_rounded,
-              ),
-              const SizedBox(height: 20),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(sheetContext),
-                    child: const Text('Cancelar'),
-                  ),
-                  const SizedBox(width: 8),
-                  FilledButton.icon(
-                    onPressed: () {
-                      if (title.text.trim().isEmpty) return;
-                      final hasMetric =
-                          selectedKind == 'Gasto' || selectedKind == 'Cosecha';
-                      final metric = hasMetric
-                          ? double.tryParse(value.text)
-                          : null;
-                      if (hasMetric && (metric == null || metric <= 0)) return;
-                      final syncedDetail = selectedKind == 'Gasto'
-                          ? detail.text.replaceFirst(
-                              RegExp(r'\$[0-9,.]+'),
-                              moneyExact.format(metric),
-                            )
-                          : selectedKind == 'Cosecha'
-                              ? detail.text.replaceFirst(
-                                  RegExp(
-                                    r'[0-9,.]+\s*(?:kg|ton|caja(?:\s+18\s+kg)?)',
-                                    caseSensitive: false,
-                                  ),
-                                  '${quantity.format(metric)} kg',
-                                )
-                              : detail.text;
-                      store.editRecord(
-                        record,
-                        title.text.trim(),
-                        syncedDetail.trim(),
-                        kind: selectedKind,
-                        value: metric,
-                      );
-                      Navigator.pop(sheetContext);
-                    },
-                    icon: const Icon(Icons.check_circle_outline_rounded),
-                    label: const Text('Guardar'),
-                  ),
-                ],
-              ),
-            ],
-          ),
         ),
-      ),
-      ),
-    ),
   );
   title.dispose();
   detail.dispose();
@@ -2245,8 +2432,10 @@ class CycleCard extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(cycle.crop,
-                              style: Theme.of(context).textTheme.titleMedium),
+                          Text(
+                            cycle.crop,
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
                           Text('${cycle.parcel} · ${cycle.area} ha'),
                         ],
                       ),
@@ -2297,22 +2486,24 @@ class _CyclesScreenState extends State<CyclesScreen> {
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
-    final visible = filter == 'Todos'
-        ? store.cycles
-        : store.cycles.where((cycle) {
-            return cycleStatusStyle(cycle.status).label ==
-                filter.replaceAll('s', '');
-          }).toList();
+    final visible =
+        filter == 'Todos'
+            ? store.cycles
+            : store.cycles.where((cycle) {
+              return cycleStatusStyle(cycle.status).label ==
+                  filter.replaceAll('s', '');
+            }).toList();
     return AppShell(
       title: store.role == UserRole.capturista ? 'Mis ciclos' : 'Ciclos',
       current: 'cycles',
-      floatingActionButton: store.role == UserRole.capturista
-          ? null
-          : FloatingActionButton.extended(
-              onPressed: () => context.push('/form/cycle'),
-              icon: const Icon(Icons.add_rounded),
-              label: const Text('Nuevo ciclo'),
-            ),
+      floatingActionButton:
+          store.role == UserRole.capturista
+              ? null
+              : FloatingActionButton.extended(
+                onPressed: () => context.push('/form/cycle'),
+                icon: const Icon(Icons.add_rounded),
+                label: const Text('Nuevo ciclo'),
+              ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
         children: [
@@ -2325,7 +2516,7 @@ class _CyclesScreenState extends State<CyclesScreen> {
                   'Activos',
                   'Planificados',
                   'Finalizados',
-                  'Cerrados'
+                  'Cerrados',
                 ])
                   Padding(
                     padding: const EdgeInsets.only(right: 8),
@@ -2353,7 +2544,9 @@ class _CyclesScreenState extends State<CyclesScreen> {
           else
             for (final cycle in visible) ...[
               CycleCard(
-                  cycle: cycle, hideMoney: store.role == UserRole.capturista),
+                cycle: cycle,
+                hideMoney: store.role == UserRole.capturista,
+              ),
               const SizedBox(height: 12),
             ],
         ],
@@ -2381,10 +2574,7 @@ class CycleDetailScreen extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(cycle.crop),
-              Text(
-                cycle.parcel,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
+              Text(cycle.parcel, style: Theme.of(context).textTheme.bodySmall),
             ],
           ),
           bottom: TabBar(
@@ -2408,8 +2598,11 @@ class CycleDetailScreen extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(right: 12),
               child: Center(
-                child:
-                    StatusPill(status.label, status.color, icon: status.icon),
+                child: StatusPill(
+                  status.label,
+                  status.color,
+                  icon: status.icon,
+                ),
               ),
             ),
           ],
@@ -2434,16 +2627,28 @@ class _CycleSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final progress = (cycle.harvestedKg / cycle.goalKg).clamp(0, 1).toDouble();
+    final store = context.watch<AppStore>();
+    final progress =
+        cycle.goalKg <= 0
+            ? 0.0
+            : (cycle.harvestedKg / cycle.goalKg).clamp(0, 1).toDouble();
+    final financialMax = math.max(cycle.income, cycle.cost);
+    final expenses =
+        store.records
+            .where(
+              (record) => record.cycleId == cycle.id && record.kind == 'Gasto',
+            )
+            .toList();
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         HeroCard(
           eyebrow: 'Resultado del ciclo',
           value: money.format(cycle.profit),
-          subtitle: cycle.income == 0
-              ? 'Aún sin ingresos registrados'
-              : 'Margen ${(cycle.margin * 100).toStringAsFixed(2)}% · ROI ${(cycle.roi * 100).toStringAsFixed(2)}%',
+          subtitle:
+              cycle.income == 0
+                  ? 'Aún sin ingresos registrados'
+                  : 'Margen ${(cycle.margin * 100).toStringAsFixed(2)}% · ROI ${(cycle.roi * 100).toStringAsFixed(2)}%',
           trailing: SizedBox(
             width: 66,
             height: 66,
@@ -2459,7 +2664,9 @@ class _CycleSummary extends StatelessWidget {
                 Text(
                   '${(progress * 100).round()}%',
                   style: const TextStyle(
-                      color: Colors.white, fontWeight: FontWeight.w700),
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ],
             ),
@@ -2471,12 +2678,11 @@ class _CycleSummary extends StatelessWidget {
         Card(
           child: Padding(
             padding: const EdgeInsets.all(20),
-            child: SizedBox(
-              height: 150,
-              child: CustomPaint(
-                size: Size.infinite,
-                painter: ProductionPainter(progress: progress),
-              ),
+            child: MiniBar(
+              label: 'Cosechado / meta',
+              value:
+                  '${quantity.format(cycle.harvestedKg)} / ${quantity.format(cycle.goalKg)} kg',
+              progress: progress,
             ),
           ),
         ),
@@ -2491,13 +2697,13 @@ class _CycleSummary extends StatelessWidget {
                 MiniBar(
                   label: 'Ingreso',
                   value: money.format(cycle.income),
-                  progress: cycle.income / math.max(cycle.income, cycle.cost),
+                  progress: financialMax == 0 ? 0 : cycle.income / financialMax,
                 ),
                 const SizedBox(height: 16),
                 MiniBar(
                   label: 'Costo',
                   value: money.format(cycle.cost),
-                  progress: cycle.cost / math.max(cycle.income, cycle.cost),
+                  progress: financialMax == 0 ? 0 : cycle.cost / financialMax,
                   color: AppColors.earth,
                 ),
               ],
@@ -2505,49 +2711,34 @@ class _CycleSummary extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 20),
-        const SectionTitle('Costo por categoría'),
+        const SectionTitle('Gastos registrados'),
         const SizedBox(height: 12),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
+        if (expenses.isEmpty)
+          const EmptyState(
+            title: 'Sin gastos registrados',
+            message: 'Los gastos de este ciclo aparecerán aquí.',
+            actionLabel: 'Entendido',
+            onAction: _noop,
+          )
+        else
+          Card(
             child: Column(
               children: [
-                MiniBar(
-                    label: 'Insumos',
-                    value: money.format(cycle.cost * .42),
-                    progress: .42),
-                const SizedBox(height: 16),
-                MiniBar(
-                  label: 'Mano de obra',
-                  value: money.format(cycle.cost * .31),
-                  progress: .31,
-                  color: AppColors.blue,
-                ),
-                const SizedBox(height: 16),
-                MiniBar(
-                  label: 'Maquinaria',
-                  value: money.format(cycle.cost * .18),
-                  progress: .18,
-                  color: AppColors.amber,
-                ),
-                const SizedBox(height: 16),
-                MiniBar(
-                  label: 'Otros',
-                  value: money.format(cycle.cost * .09),
-                  progress: .09,
-                  color: AppColors.tertiaryInk,
-                ),
+                for (final expense in expenses)
+                  ListTile(
+                    leading: const IconBox(Icons.receipt_long_rounded),
+                    title: Text(expense.title),
+                    subtitle: Text(
+                      [
+                        if (expense.detail.isNotEmpty) expense.detail,
+                        shortDate.format(expense.date),
+                      ].join(' · '),
+                    ),
+                    trailing: Text(money.format(expense.value ?? 0)),
+                  ),
               ],
             ),
           ),
-        ),
-        const SizedBox(height: 20),
-        const InfoBanner(
-          title: 'Contra el ciclo anterior',
-          text: 'El rendimiento subió 8.4% y el costo por kg bajó \$1.20.',
-          tone: AppColors.green,
-          icon: Icons.compare_arrows_rounded,
-        ),
         const SizedBox(height: 20),
         const SectionTitle('Ficha del ciclo'),
         const SizedBox(height: 12),
@@ -2583,62 +2774,6 @@ class _CycleSummary extends StatelessWidget {
   }
 }
 
-class ProductionPainter extends CustomPainter {
-  ProductionPainter({required this.progress});
-
-  final double progress;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final grid = Paint()
-      ..color = AppColors.border
-      ..strokeWidth = 1;
-    final target = Paint()
-      ..color = AppColors.amber
-      ..strokeWidth = 2;
-    final line = Paint()
-      ..color = AppColors.green
-      ..strokeWidth = 4
-      ..strokeCap = StrokeCap.round
-      ..style = PaintingStyle.stroke;
-    for (var i = 1; i < 4; i++) {
-      final y = size.height * i / 4;
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), grid);
-    }
-    for (double x = 0; x < size.width; x += 12) {
-      canvas.drawLine(
-        Offset(x, size.height * .18),
-        Offset(math.min(x + 6, size.width), size.height * .18),
-        target,
-      );
-    }
-    final path = Path()
-      ..moveTo(0, size.height)
-      ..cubicTo(
-        size.width * .25,
-        size.height * .86,
-        size.width * .28,
-        size.height * .54,
-        size.width * .5,
-        size.height * .56,
-      )
-      ..cubicTo(
-        size.width * .72,
-        size.height * .57,
-        size.width * .72,
-        size.height * .28,
-        size.width,
-        size.height * (1 - progress),
-      );
-    canvas.drawPath(path, line);
-  }
-
-  @override
-  bool shouldRepaint(covariant ProductionPainter oldDelegate) {
-    return oldDelegate.progress != progress;
-  }
-}
-
 class _CycleField extends StatelessWidget {
   const _CycleField({required this.cycle});
 
@@ -2646,7 +2781,16 @@ class _CycleField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final locked = cycle.status == CycleStatus.finalizado ||
+    final records =
+        context
+            .watch<AppStore>()
+            .records
+            .where(
+              (record) => record.cycleId == cycle.id && record.kind != 'Gasto',
+            )
+            .toList();
+    final locked =
+        cycle.status == CycleStatus.finalizado ||
         cycle.status == CycleStatus.cerrado;
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -2667,14 +2811,14 @@ class _CycleField extends StatelessWidget {
               ActionChip(
                 avatar: const Icon(Icons.agriculture_rounded, size: 18),
                 label: const Text('Actividad'),
-                onPressed: () =>
-                    context.push('/form/activity?cycle=${cycle.id}'),
+                onPressed:
+                    () => context.push('/form/activity?cycle=${cycle.id}'),
               ),
               ActionChip(
                 avatar: const Icon(Icons.inventory_2_rounded, size: 18),
                 label: const Text('Cosecha'),
-                onPressed: () =>
-                    context.push('/form/harvest?cycle=${cycle.id}'),
+                onPressed:
+                    () => context.push('/form/harvest?cycle=${cycle.id}'),
               ),
               ActionChip(
                 avatar: const Icon(Icons.compost_rounded, size: 18),
@@ -2686,36 +2830,42 @@ class _CycleField extends StatelessWidget {
         const SizedBox(height: 20),
         const SectionTitle('Movimientos de campo'),
         const SizedBox(height: 12),
-        const Card(
-          child: Column(
-            children: [
-              ListTile(
-                leading: PlainLeadingIcon(Icons.inventory_2_rounded),
-                title: Text('Cosecha · 1,250 kg'),
-                subtitle: Text('12 jun · Calidad Primera'),
-                trailing: StatusPill('Primera', AppColors.green,
-                    icon: Icons.grade_rounded),
-              ),
-              Divider(height: 1, indent: 68),
-              ListTile(
-                leading: PlainLeadingIcon(Icons.agriculture_rounded),
-                title: Text('Aplicación foliar'),
-                subtitle: Text('11 jun · Desarrollo'),
-                trailing: StatusPill('Hecha', AppColors.blue,
-                    icon: Icons.check_rounded),
-              ),
-              Divider(height: 1, indent: 68),
-              ListTile(
-                leading: PlainLeadingIcon(Icons.compost_rounded,
-                    color: AppColors.earth),
-                title: Text('Merma poscosecha · 85 kg'),
-                subtitle: Text('10 jun · Daño mecánico'),
-                trailing: StatusPill('Merma', AppColors.earth,
-                    icon: Icons.remove_rounded),
-              ),
-            ],
+        if (records.isEmpty)
+          const EmptyState(
+            title: 'Sin movimientos de campo',
+            message: 'Las actividades, cosechas y mermas aparecerán aquí.',
+            actionLabel: 'Entendido',
+            onAction: _noop,
+          )
+        else
+          Card(
+            child: Column(
+              children: [
+                for (final record in records)
+                  ListTile(
+                    leading: IconBox(switch (record.kind) {
+                      'Cosecha' => Icons.inventory_2_rounded,
+                      'Merma' => Icons.compost_rounded,
+                      _ => Icons.agriculture_rounded,
+                    }),
+                    title: Text(record.title),
+                    subtitle: Text(
+                      [
+                        shortDate.format(record.date),
+                        if (record.detail.isNotEmpty) record.detail,
+                      ].join(' · '),
+                    ),
+                    trailing:
+                        record.value == null
+                            ? null
+                            : Text(
+                              '${quantity.format(record.value)} ${record.unit ?? ''}'
+                                  .trim(),
+                            ),
+                  ),
+              ],
+            ),
           ),
-        ),
       ],
     );
   }
@@ -2728,7 +2878,18 @@ class _CycleMoney extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final role = context.watch<AppStore>().role;
+    final store = context.watch<AppStore>();
+    final role = store.role;
+    final expenses =
+        store.records
+            .where(
+              (record) => record.cycleId == cycle.id && record.kind == 'Gasto',
+            )
+            .toList();
+    final sales =
+        store.sales
+            .where((sale) => sale.cycleId == cycle.id && !sale.cancelled)
+            .toList();
     if (role == UserRole.capturista) {
       return const EmptyState(
         title: 'Acceso restringido',
@@ -2766,8 +2927,8 @@ class _CycleMoney extends StatelessWidget {
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: () =>
-                    context.push('/form/expense?cycle=${cycle.id}'),
+                onPressed:
+                    () => context.push('/form/expense?cycle=${cycle.id}'),
                 icon: const Icon(Icons.add_rounded),
                 label: const Text('Gasto'),
               ),
@@ -2783,28 +2944,48 @@ class _CycleMoney extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 20),
-        const SectionTitle('Últimos movimientos'),
+        const SectionTitle('Movimientos financieros'),
         const SizedBox(height: 12),
-        Card(
-          child: Column(
-            children: [
-              ListTile(
-                leading: const PlainLeadingIcon(Icons.receipt_long_rounded,
-                    color: AppColors.earth),
-                title: const Text('Fertilizante foliar'),
-                subtitle: const Text('Agroinsumos Oaxaca · 11 jun'),
-                trailing: Text(money.format(8450)),
-              ),
-              const Divider(height: 1, indent: 68),
-              ListTile(
-                leading: const PlainLeadingIcon(Icons.local_shipping_rounded),
-                title: const Text('Venta V-1042'),
-                subtitle: const Text('Central de Abastos · 4,200 kg'),
-                trailing: Text(money.format(62000)),
-              ),
-            ],
+        if (expenses.isEmpty && sales.isEmpty)
+          const EmptyState(
+            title: 'Sin movimientos financieros',
+            message: 'Los gastos y ventas aparecerán aquí.',
+            actionLabel: 'Entendido',
+            onAction: _noop,
+          )
+        else
+          Card(
+            child: Column(
+              children: [
+                for (final expense in expenses)
+                  ListTile(
+                    leading: const PlainLeadingIcon(
+                      Icons.receipt_long_rounded,
+                      color: AppColors.earth,
+                    ),
+                    title: Text(expense.title),
+                    subtitle: Text(
+                      [
+                        if (expense.detail.isNotEmpty) expense.detail,
+                        shortDate.format(expense.date),
+                      ].join(' · '),
+                    ),
+                    trailing: Text(money.format(expense.value ?? 0)),
+                  ),
+                for (final sale in sales)
+                  ListTile(
+                    leading: const PlainLeadingIcon(
+                      Icons.local_shipping_rounded,
+                    ),
+                    title: Text('Venta ${sale.id}'),
+                    subtitle: Text(
+                      '${sale.client} · ${quantity.format(sale.kg)} kg',
+                    ),
+                    trailing: Text(money.format(sale.total)),
+                  ),
+              ],
+            ),
           ),
-        ),
       ],
     );
   }
@@ -2819,7 +3000,20 @@ class _CycleHistory extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final records = context.watch<AppStore>().records;
+    final records =
+        context
+            .watch<AppStore>()
+            .records
+            .where((record) => record.cycleId == cycle.id)
+            .toList();
+    if (records.isEmpty) {
+      return const EmptyState(
+        title: 'Sin historial',
+        message: 'Los registros de este ciclo aparecerán aquí.',
+        actionLabel: 'Entendido',
+        onAction: _noop,
+      );
+    }
     return ListView.builder(
       padding: const EdgeInsets.all(16),
       itemCount: records.length,
@@ -2837,7 +3031,8 @@ class _CycleHistory extends StatelessWidget {
                   ),
                   if (index < records.length - 1)
                     const Expanded(
-                        child: VerticalDivider(width: 40, thickness: 2)),
+                      child: VerticalDivider(width: 40, thickness: 2),
+                    ),
                 ],
               ),
               const SizedBox(width: 12),
@@ -2847,13 +3042,17 @@ class _CycleHistory extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(record.title,
-                          style: Theme.of(context).textTheme.titleMedium),
+                      Text(
+                        record.title,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
                       const SizedBox(height: 3),
                       Text(record.detail),
                       const SizedBox(height: 4),
-                      Text(shortDate.format(record.date),
-                          style: Theme.of(context).textTheme.bodySmall),
+                      Text(
+                        shortDate.format(record.date),
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
                     ],
                   ),
                 ),
@@ -2923,8 +3122,10 @@ class SaleCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(sale.client,
-                            style: Theme.of(context).textTheme.titleMedium),
+                        Text(
+                          sale.client,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
                         Text('${sale.id} · ${quantity.format(sale.kg)} kg'),
                       ],
                     ),
@@ -2936,8 +3137,11 @@ class SaleCard extends StatelessWidget {
               Row(
                 children: [
                   Expanded(
-                      child: _Metric(
-                          label: 'Total', value: money.format(sale.total))),
+                    child: _Metric(
+                      label: 'Total',
+                      value: money.format(sale.total),
+                    ),
+                  ),
                   Expanded(
                     child: _Metric(
                       label: 'Saldo',
@@ -2984,22 +3188,20 @@ class SaleDetailScreen extends StatelessWidget {
             subtitle: '${quantity.format(sale.kg)} kg · ${sale.client}',
           ),
           const SizedBox(height: 20),
-          const SectionTitle('Renglones'),
+          const SectionTitle('Resumen'),
           const SizedBox(height: 12),
           Card(
             child: Column(
               children: [
                 ListTile(
-                  title: const Text('Calidad Primera'),
-                  subtitle:
-                      Text('${quantity.format(sale.kg * .75)} kg × \$15.20'),
-                  trailing: Text(money.format(sale.total * .78)),
+                  title: const Text('Cantidad'),
+                  trailing: Text('${quantity.format(sale.kg)} kg'),
                 ),
                 ListTile(
-                  title: const Text('Calidad Segunda'),
-                  subtitle:
-                      Text('${quantity.format(sale.kg * .25)} kg × \$12.80'),
-                  trailing: Text(money.format(sale.total * .22)),
+                  title: const Text('Precio promedio'),
+                  trailing: Text(
+                    moneyExact.format(sale.kg == 0 ? 0 : sale.total / sale.kg),
+                  ),
                 ),
               ],
             ),
@@ -3011,11 +3213,10 @@ class SaleDetailScreen extends StatelessWidget {
             Card(
               child: ListTile(
                 leading: const IconBox(Icons.payments_rounded),
-                title: Text(money.format(sale.paid)),
-                subtitle:
-                    Text('Transferencia · ${shortDate.format(DateTime.now())}'),
-                trailing: const StatusPill('Aplicado', AppColors.green,
-                    icon: Icons.check_rounded),
+                title: Text('Total cobrado: ${money.format(sale.paid)}'),
+                subtitle: Text(
+                  'Saldo pendiente: ${money.format(sale.total - sale.paid)}',
+                ),
               ),
             )
           else
@@ -3027,60 +3228,67 @@ class SaleDetailScreen extends StatelessWidget {
             ),
           const SizedBox(height: 20),
           FilledButton.icon(
-            onPressed: sale.paid >= sale.total
-                ? null
-                : () => context.push('/form/payment?sale=${sale.id}'),
+            onPressed:
+                sale.paid >= sale.total
+                    ? null
+                    : () => context.push('/form/payment?sale=${sale.id}'),
             icon: const Icon(Icons.add_rounded),
             label: const Text('Registrar cobro'),
           ),
           const SizedBox(height: 12),
           OutlinedButton.icon(
-            onPressed: sale.cancelled
-                ? null
-                : () => showDialog<void>(
+            onPressed:
+                sale.cancelled
+                    ? null
+                    : () => showDialog<void>(
                       context: context,
-                      builder: (dialogContext) => AlertDialog(
-                        title: const Text('Cancelar venta'),
-                        content: const Text(
-                          'La venta se conservará en la auditoría y los kg volverán a estar disponibles.',
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(dialogContext),
-                            child: const Text('Volver'),
+                      builder:
+                          (dialogContext) => AlertDialog(
+                            title: const Text('Cancelar venta'),
+                            content: const Text(
+                              'La venta se conservará en la auditoría y los kg volverán a estar disponibles.',
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(dialogContext),
+                                child: const Text('Volver'),
+                              ),
+                              FilledButton(
+                                onPressed: () async {
+                                  Navigator.pop(dialogContext);
+                                  try {
+                                    await store.cancelSale(sale);
+                                    if (!context.mounted) return;
+                                    final messenger = ScaffoldMessenger.of(
+                                      context,
+                                    );
+                                    context.pop();
+                                    messenger.showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          store.dataError == null
+                                              ? 'Venta cancelada en el servidor.'
+                                              : 'La venta se canceló, pero no se pudo actualizar la información: ${store.dataError}',
+                                        ),
+                                      ),
+                                    );
+                                  } on ApiException catch (error) {
+                                    if (!context.mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text(error.message)),
+                                    );
+                                  }
+                                },
+                                child: const Text('Cancelar venta'),
+                              ),
+                            ],
                           ),
-                          FilledButton(
-                            onPressed: () async {
-                              Navigator.pop(dialogContext);
-                              try {
-                                await store.cancelSale(sale);
-                                if (!context.mounted) return;
-                                final messenger = ScaffoldMessenger.of(context);
-                                context.pop();
-                                messenger.showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      store.dataError == null
-                                          ? 'Venta cancelada en el servidor.'
-                                          : 'La venta se canceló, pero no se pudo actualizar la información: ${store.dataError}',
-                                    ),
-                                  ),
-                                );
-                              } on ApiException catch (error) {
-                                if (!context.mounted) return;
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text(error.message)),
-                                );
-                              }
-                            },
-                            child: const Text('Cancelar venta'),
-                          ),
-                        ],
-                      ),
                     ),
             icon: const Icon(Icons.block_rounded, color: AppColors.red),
-            label: const Text('Cancelar venta',
-                style: TextStyle(color: AppColors.red)),
+            label: const Text(
+              'Cancelar venta',
+              style: TextStyle(color: AppColors.red),
+            ),
           ),
         ],
       ),
@@ -3137,7 +3345,19 @@ class MoreScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final role = context.watch<AppStore>().role;
+    final store = context.watch<AppStore>();
+    final role = store.role;
+    final rawCompanyName = store.companyProfile?['nombre'];
+    final companyName =
+        rawCompanyName is String && rawCompanyName.trim().isNotEmpty
+            ? rawCompanyName.trim()
+            : 'Mi empresa';
+    final rawPlan = store.companyProfile?['plan'];
+    final rawPlanName = rawPlan is Map ? rawPlan['nombre'] : null;
+    final planName =
+        rawPlanName is String && rawPlanName.isNotEmpty ? rawPlanName : null;
+    final rawSubscription = store.companyProfile?['estadoSuscripcion'];
+    final subscription = rawSubscription is String ? rawSubscription : null;
     final roleLabel = switch (role) {
       UserRole.admin => 'Administrador',
       UserRole.capturista => 'Capturista',
@@ -3149,7 +3369,7 @@ class MoreScreen extends StatelessWidget {
           (
             'Cuentas por cobrar',
             Icons.receipt_long_outlined,
-            'cuentas-por-cobrar'
+            'cuentas-por-cobrar',
           ),
           ('Gastos', Icons.payments_outlined, 'gastos'),
           ('Reportes', Icons.assessment_outlined, 'reportes'),
@@ -3170,7 +3390,7 @@ class MoreScreen extends StatelessWidget {
           (
             'Usuarios y permisos',
             Icons.admin_panel_settings_outlined,
-            'usuarios'
+            'usuarios',
           ),
           ('Mi empresa', Icons.business_outlined, 'empresa'),
           ('Bitácora de auditoría', Icons.fact_check_outlined, 'auditoria'),
@@ -3207,23 +3427,32 @@ class MoreScreen extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'Rancho Los Pinos',
-                        style: TextStyle(
+                      Text(
+                        companyName,
+                        style: const TextStyle(
                           color: Colors.white,
                           fontSize: 18,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
                       Text(
-                        'Plan Crecimiento · $roleLabel',
+                        [if (planName != null) planName, roleLabel].join(' · '),
                         style: const TextStyle(color: Colors.white70),
                       ),
                     ],
                   ),
                 ),
-                const StatusPill('ACTIVA', AppColors.lime,
-                    icon: Icons.verified_rounded),
+                if (subscription != null)
+                  StatusPill(
+                    subscription,
+                    subscription == 'ACTIVA' || subscription == 'PRUEBA'
+                        ? AppColors.lime
+                        : AppColors.red,
+                    icon:
+                        subscription == 'ACTIVA' || subscription == 'PRUEBA'
+                            ? Icons.verified_rounded
+                            : Icons.warning_rounded,
+                  ),
               ],
             ),
           ),
@@ -3241,9 +3470,10 @@ class MoreScreen extends StatelessWidget {
                         child: Icon(
                           item.$2,
                           size: 28,
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSecondaryContainer,
+                          color:
+                              Theme.of(
+                                context,
+                              ).colorScheme.onSecondaryContainer,
                         ),
                       ),
                       title: Text(item.$1),
@@ -3320,11 +3550,11 @@ class ModuleScreen extends StatelessWidget {
       'perfil' => const _ProfileModule(),
       'ayuda' => const _HelpModule(),
       _ => const EmptyState(
-          title: 'Módulo sin datos',
-          message: 'Agrega el primer registro para comenzar.',
-          actionLabel: 'Agregar',
-          onAction: _noop,
-        ),
+        title: 'Módulo sin datos',
+        message: 'Agrega el primer registro para comenzar.',
+        actionLabel: 'Agregar',
+        onAction: _noop,
+      ),
     };
   }
 }
@@ -3341,10 +3571,14 @@ class _ReceivablesModuleState extends State<_ReceivablesModule> {
 
   @override
   Widget build(BuildContext context) {
-    final sales = context.watch<AppStore>().sales.where((sale) =>
-        sale.paid < sale.total && (filter == null || sale.status == filter));
-    final total =
-        sales.fold<double>(0, (sum, sale) => sum + sale.total - sale.paid);
+    final sales = context.watch<AppStore>().sales.where(
+      (sale) =>
+          sale.paid < sale.total && (filter == null || sale.status == filter),
+    );
+    final total = sales.fold<double>(
+      0,
+      (sum, sale) => sum + sale.total - sale.paid,
+    );
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -3403,11 +3637,12 @@ class _ExpensesModule extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final expenses = context
-        .watch<AppStore>()
-        .records
-        .where((record) => record.kind == 'Gasto')
-        .toList();
+    final expenses =
+        context
+            .watch<AppStore>()
+            .records
+            .where((record) => record.kind == 'Gasto')
+            .toList();
     final total = expenses.fold<double>(
       0,
       (sum, record) => sum + (record.value ?? 0),
@@ -3416,7 +3651,8 @@ class _ExpensesModule extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       children: [
         InfoBanner(
-          text: '${expenses.length} gastos registrados · ${money.format(total)} en total.',
+          text:
+              '${expenses.length} gastos registrados · ${money.format(total)} en total.',
           tone: AppColors.earth,
           icon: Icons.receipt_long_rounded,
         ),
@@ -3462,9 +3698,10 @@ class _PropertiesModule extends StatelessWidget {
         InfoBanner(
           title:
               canEdit ? 'Administración habilitada' : 'Vista de solo lectura',
-          text: canEdit
-              ? 'Crea predios y parcelas sin superar la superficie disponible.'
-              : 'Tu rol puede consultar la estructura, pero no modificarla.',
+          text:
+              canEdit
+                  ? 'Crea predios y parcelas sin superar la superficie disponible.'
+                  : 'Tu rol puede consultar la estructura, pero no modificarla.',
           tone: AppColors.green,
           icon: Icons.map_rounded,
         ),
@@ -3474,19 +3711,21 @@ class _PropertiesModule extends StatelessWidget {
             title: 'Aún no hay predios',
             message: 'Crea el primer predio para organizar sus parcelas.',
             actionLabel: canEdit ? 'Crear predio' : 'Entendido',
-            onAction: canEdit
-                ? () => context.push('/catalog-form/property')
-                : () => context.pop(),
+            onAction:
+                canEdit
+                    ? () => context.push('/catalog-form/property')
+                    : () => context.pop(),
           ),
         for (final property in store.properties) ...[
           SectionTitle(
             property.name,
-            action: canEdit
-                ? TextButton(
-                    onPressed: () => context.push('/catalog-form/property'),
-                    child: const Text('+ Predio'),
-                  )
-                : null,
+            action:
+                canEdit
+                    ? TextButton(
+                      onPressed: () => context.push('/catalog-form/property'),
+                      child: const Text('+ Predio'),
+                    )
+                    : null,
           ),
           const SizedBox(height: 12),
           Card(
@@ -3584,9 +3823,10 @@ class _ClientsModule extends StatelessWidget {
                   ListTile(
                     leading: IconBox(
                       Icons.handshake_rounded,
-                      color: client.active
-                          ? AppColors.green
-                          : AppColors.tertiaryInk,
+                      color:
+                          client.active
+                              ? AppColors.green
+                              : AppColors.tertiaryInk,
                     ),
                     title: Text(client.name),
                     subtitle: Text(
@@ -3595,29 +3835,36 @@ class _ClientsModule extends StatelessWidget {
                       '${client.phone.isEmpty ? 'Sin teléfono' : client.phone} · '
                       '${client.email.isEmpty ? 'Sin correo' : client.email}',
                     ),
-                    trailing: store.isAuthenticated
-                        ? null
-                        : PopupMenuButton<String>(
-                      tooltip: 'Acciones del cliente',
-                      onSelected: (value) {
-                        if (value == 'toggle') store.togglePartner(client);
-                      },
-                      itemBuilder: (_) => [
-                        PopupMenuItem(
-                          value: 'toggle',
-                          child: ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            leading: Icon(
-                              client.active
-                                  ? Icons.person_off_rounded
-                                  : Icons.person_add_alt_1_rounded,
+                    trailing:
+                        store.isAuthenticated
+                            ? null
+                            : PopupMenuButton<String>(
+                              tooltip: 'Acciones del cliente',
+                              onSelected: (value) {
+                                if (value == 'toggle') {
+                                  store.togglePartner(client);
+                                }
+                              },
+                              itemBuilder:
+                                  (_) => [
+                                    PopupMenuItem(
+                                      value: 'toggle',
+                                      child: ListTile(
+                                        contentPadding: EdgeInsets.zero,
+                                        leading: Icon(
+                                          client.active
+                                              ? Icons.person_off_rounded
+                                              : Icons.person_add_alt_1_rounded,
+                                        ),
+                                        title: Text(
+                                          client.active
+                                              ? 'Desactivar'
+                                              : 'Reactivar',
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                             ),
-                            title: Text(
-                                client.active ? 'Desactivar' : 'Reactivar'),
-                          ),
-                        ),
-                      ],
-                    ),
                   ),
               ],
             ),
@@ -3640,34 +3887,36 @@ class _UsersModule extends StatelessWidget {
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
     final usage = store.companyProfile?['cuotas'];
-    final maxUsers = usage is Map
-        ? int.tryParse('${usage['maxUsuarios']}') ?? 0
-        : store.isAuthenticated
+    final maxUsers =
+        usage is Map
+            ? int.tryParse('${usage['maxUsuarios']}') ?? 0
+            : store.isAuthenticated
             ? 0
             : 5;
-    final activeUsers = usage is Map
-        ? int.tryParse('${usage['usuariosActivos']}') ?? store.users.length
-        : store.users.length;
+    final activeUsers =
+        usage is Map
+            ? int.tryParse('${usage['usuariosActivos']}') ?? store.users.length
+            : store.users.length;
     final hasQuota = maxUsers > 0;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         InfoBanner(
-          title: hasQuota
-              ? '$activeUsers de $maxUsers usuarios'
-              : 'Cuota de usuarios no disponible',
-          text: hasQuota
-              ? 'Tu plan permite agregar ${math.max(0, maxUsers - activeUsers)} personas más.'
-              : 'No se pudo consultar el límite vigente del plan.',
+          title:
+              hasQuota
+                  ? '$activeUsers de $maxUsers usuarios'
+                  : 'Cuota de usuarios no disponible',
+          text:
+              hasQuota
+                  ? 'Tu plan permite agregar ${math.max(0, maxUsers - activeUsers)} personas más.'
+                  : 'No se pudo consultar el límite vigente del plan.',
           tone: AppColors.green,
           icon: Icons.group_add_rounded,
         ),
         const SizedBox(height: 12),
         MiniBar(
           label: 'Uso del plan',
-          value: hasQuota
-              ? '${(activeUsers / maxUsers * 100).round()}%'
-              : '—',
+          value: hasQuota ? '${(activeUsers / maxUsers * 100).round()}%' : '—',
           progress: hasQuota ? activeUsers / maxUsers : 0,
         ),
         const SizedBox(height: 20),
@@ -3690,9 +3939,10 @@ class _UsersModule extends StatelessWidget {
           const SizedBox(height: 12),
         ],
         FilledButton.icon(
-          onPressed: !hasQuota || activeUsers >= maxUsers
-              ? null
-              : () => context.push('/catalog-form/user'),
+          onPressed:
+              !hasQuota || activeUsers >= maxUsers
+                  ? null
+                  : () => context.push('/catalog-form/user'),
           icon: const Icon(Icons.person_add_rounded),
           label: const Text('Agregar usuario · F-02'),
         ),
@@ -3704,8 +3954,11 @@ class _UsersModule extends StatelessWidget {
           runSpacing: 6,
           children: [
             for (final permission in AppStore.permissions)
-              StatusPill(permission, AppColors.green,
-                  icon: Icons.check_rounded),
+              StatusPill(
+                permission,
+                AppColors.green,
+                icon: Icons.check_rounded,
+              ),
           ],
         ),
       ],
@@ -3732,18 +3985,15 @@ Future<void> _toggleUser(
     );
   } on ApiException catch (error) {
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
     }
   }
 }
 
 class _UserCard extends StatelessWidget {
-  const _UserCard({
-    required this.user,
-    required this.permissions,
-  });
+  const _UserCard({required this.user, required this.permissions});
 
   final AppUser user;
   final String permissions;
@@ -3765,25 +4015,29 @@ class _UserCard extends StatelessWidget {
               _toggleUser(context, context.read<AppStore>(), user);
             }
           },
-          itemBuilder: (_) => [
-            PopupMenuItem(
-              enabled: user != context.read<AppStore>().currentUser,
-              value: 'toggle',
-              child: ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(user.active
-                    ? Icons.block_rounded
-                    : Icons.check_circle_rounded),
-                title: Text(user.active ? 'Desactivar' : 'Reactivar'),
-              ),
-            ),
-          ],
+          itemBuilder:
+              (_) => [
+                PopupMenuItem(
+                  enabled: user != context.read<AppStore>().currentUser,
+                  value: 'toggle',
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(
+                      user.active
+                          ? Icons.block_rounded
+                          : Icons.check_circle_rounded,
+                    ),
+                    title: Text(user.active ? 'Desactivar' : 'Reactivar'),
+                  ),
+                ),
+              ],
           child: StatusPill(
             user.active ? user.role.name.toUpperCase() : 'INACTIVO',
             user.active ? AppColors.green : AppColors.tertiaryInk,
-            icon: user.active
-                ? Icons.verified_user_rounded
-                : Icons.person_off_rounded,
+            icon:
+                user.active
+                    ? Icons.verified_user_rounded
+                    : Icons.person_off_rounded,
           ),
         ),
       ),
@@ -3813,8 +4067,10 @@ class _AuditModule extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(entry.title,
-                      style: const TextStyle(fontWeight: FontWeight.w700)),
+                  Text(
+                    entry.title,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
                   const SizedBox(height: 4),
                   Text(
                     '${shortDate.format(entry.date)} · ${entry.detail} · IP ${entry.ip}',
@@ -3827,12 +4083,8 @@ class _AuditModule extends StatelessWidget {
                         Expanded(
                           child: Text(
                             'ANTERIOR\n${entry.before}',
-                            style: Theme.of(context)
-                                .textTheme
-                                .labelMedium
-                                ?.copyWith(
-                                  color: AppColors.red,
-                                ),
+                            style: Theme.of(context).textTheme.labelMedium
+                                ?.copyWith(color: AppColors.red),
                           ),
                         ),
                         const Icon(Icons.arrow_forward_rounded),
@@ -3840,12 +4092,8 @@ class _AuditModule extends StatelessWidget {
                           child: Text(
                             'NUEVO\n${entry.after}',
                             textAlign: TextAlign.end,
-                            style: Theme.of(context)
-                                .textTheme
-                                .labelMedium
-                                ?.copyWith(
-                                  color: AppColors.green,
-                                ),
+                            style: Theme.of(context).textTheme.labelMedium
+                                ?.copyWith(color: AppColors.green),
                           ),
                         ),
                       ],
@@ -3876,16 +4124,18 @@ class _AlertsModuleState extends State<_AlertsModule> {
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
     final alerts = store.alerts;
-    final visible = filter == 'Todas'
-        ? alerts
-        : alerts.where((alert) => alert.severity == filter).toList();
+    final visible =
+        filter == 'Todas'
+            ? alerts
+            : alerts.where((alert) => alert.severity == filter).toList();
     Widget alertItem(ProfitabilityAlert alert) {
       final banner = InfoBanner(
         title: '${alert.title} · ${alert.severity}',
         text: alert.detail,
-        tone: alert.severity == 'Alta'
-            ? AppColors.red
-            : alert.severity == 'Media'
+        tone:
+            alert.severity == 'Alta'
+                ? AppColors.red
+                : alert.severity == 'Media'
                 ? AppColors.amber
                 : AppColors.blue,
         icon: Icons.warning_rounded,
@@ -3937,7 +4187,7 @@ class _AlertsModuleState extends State<_AlertsModule> {
                 'Alta',
                 'Media',
                 'Baja',
-                'Informativa'
+                'Informativa',
               ])
                 Padding(
                   padding: const EdgeInsets.only(right: 8),
@@ -3977,7 +4227,8 @@ class _ComparisonModule extends StatelessWidget {
     if (cycles.length < 2) {
       return EmptyState(
         title: 'Se necesitan dos ciclos',
-        message: 'Cuando haya dos ciclos cargados podrás comparar sus resultados.',
+        message:
+            'Cuando haya dos ciclos cargados podrás comparar sus resultados.',
         actionLabel: 'Ver ciclos',
         onAction: () => context.push('/cycles'),
       );
@@ -4026,8 +4277,10 @@ class _ComparisonModule extends StatelessWidget {
                 ),
                 _ComparisonRow(
                   label: 'Rendimiento / ha',
-                  left: '${quantity.format(left.area == 0 ? 0 : left.harvestedKg / left.area)} kg',
-                  right: '${quantity.format(right.area == 0 ? 0 : right.harvestedKg / right.area)} kg',
+                  left:
+                      '${quantity.format(left.area == 0 ? 0 : left.harvestedKg / left.area)} kg',
+                  right:
+                      '${quantity.format(right.area == 0 ? 0 : right.harvestedKg / right.area)} kg',
                 ),
                 _ComparisonRow(
                   label: 'ROI',
@@ -4070,7 +4323,9 @@ class _ComparisonRow extends StatelessWidget {
               left,
               textAlign: TextAlign.center,
               style: const TextStyle(
-                  color: AppColors.green, fontWeight: FontWeight.w700),
+                color: AppColors.green,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
           Expanded(
@@ -4078,7 +4333,9 @@ class _ComparisonRow extends StatelessWidget {
               right,
               textAlign: TextAlign.end,
               style: const TextStyle(
-                  color: AppColors.red, fontWeight: FontWeight.w700),
+                color: AppColors.red,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ],
@@ -4093,15 +4350,9 @@ class _CategoriesModule extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
-    final canEdit = store.role == UserRole.admin;
+    final canEdit =
+        store.isAuthenticated && store.role == UserRole.admin;
     final categories = store.catalogs['expenseCategories'] ?? [];
-    final visibleCategories = categories.isEmpty && !store.isAuthenticated
-        ? const [
-            {'nombre': 'Insumos', 'subcategorias': ['Semillas', 'Fertilizantes', 'Agroquímicos']},
-            {'nombre': 'Mano de obra', 'subcategorias': ['Jornales', 'Cosecha', 'Supervisión']},
-            {'nombre': 'Maquinaria', 'subcategorias': ['Renta', 'Combustible', 'Mantenimiento']},
-          ]
-        : categories;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -4113,14 +4364,14 @@ class _CategoriesModule extends StatelessWidget {
           icon: Icons.account_tree_rounded,
         ),
         const SizedBox(height: 16),
-        if (visibleCategories.isEmpty)
+        if (categories.isEmpty)
           const InfoBanner(
             title: 'Sin categorías de gasto',
             text: 'No hay categorías disponibles en el catálogo del servidor.',
             tone: AppColors.amber,
           )
         else
-          for (final category in visibleCategories) ...[
+          for (final category in categories) ...[
             _CategoryCard(
               title: '${category['nombre']}',
               children: _categoryChildren(category),
@@ -4130,13 +4381,7 @@ class _CategoriesModule extends StatelessWidget {
         if (canEdit) ...[
           const SizedBox(height: 16),
           FilledButton.icon(
-            onPressed: () => store.isAuthenticated
-                ? _createExpenseCategory(context, store)
-                : ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('La categoría se guardaría en el demo.'),
-                    ),
-                  ),
+            onPressed: () => _createExpenseCategory(context, store),
             icon: const Icon(Icons.add_rounded),
             label: const Text('Nueva categoría personalizada'),
           ),
@@ -4162,32 +4407,35 @@ Future<void> _createExpenseCategory(
   final description = TextEditingController();
   final confirmed = await showDialog<bool>(
     context: context,
-    builder: (dialogContext) => AlertDialog(
-      title: const Text('Nueva categoría'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: name,
-            decoration: const InputDecoration(labelText: 'Nombre'),
+    builder:
+        (dialogContext) => AlertDialog(
+          title: const Text('Nueva categoría'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: name,
+                decoration: const InputDecoration(labelText: 'Nombre'),
+              ),
+              TextField(
+                controller: description,
+                decoration: const InputDecoration(
+                  labelText: 'Descripción (opcional)',
+                ),
+              ),
+            ],
           ),
-          TextField(
-            controller: description,
-            decoration: const InputDecoration(labelText: 'Descripción (opcional)'),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(dialogContext, false),
-          child: const Text('Cancelar'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Guardar'),
+            ),
+          ],
         ),
-        FilledButton(
-          onPressed: () => Navigator.pop(dialogContext, true),
-          child: const Text('Guardar'),
-        ),
-      ],
-    ),
   );
   if (confirmed == true && context.mounted) {
     try {
@@ -4215,9 +4463,9 @@ Future<void> _createExpenseCategory(
       }
     } on ApiException catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error.message)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
       }
     }
   }
@@ -4285,38 +4533,46 @@ class _SuppliersModule extends StatelessWidget {
                     leading: const IconBox(Icons.storefront_rounded),
                     title: Text(supplier.name),
                     subtitle: Text('${supplier.kind} · ${supplier.detail}'),
-                    trailing: store.isAuthenticated
-                        ? null
-                        : PopupMenuButton<String>(
-                      tooltip: 'Acciones del proveedor',
-                      onSelected: (value) {
-                        if (value == 'toggle') store.togglePartner(supplier);
-                      },
-                      itemBuilder: (_) => [
-                        PopupMenuItem(
-                          value: 'toggle',
-                          child: ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            leading: Icon(
-                              supplier.active
-                                  ? Icons.visibility_off_rounded
-                                  : Icons.visibility_rounded,
+                    trailing:
+                        store.isAuthenticated
+                            ? null
+                            : PopupMenuButton<String>(
+                              tooltip: 'Acciones del proveedor',
+                              onSelected: (value) {
+                                if (value == 'toggle') {
+                                  store.togglePartner(supplier);
+                                }
+                              },
+                              itemBuilder:
+                                  (_) => [
+                                    PopupMenuItem(
+                                      value: 'toggle',
+                                      child: ListTile(
+                                        contentPadding: EdgeInsets.zero,
+                                        leading: Icon(
+                                          supplier.active
+                                              ? Icons.visibility_off_rounded
+                                              : Icons.visibility_rounded,
+                                        ),
+                                        title: Text(
+                                          supplier.active
+                                              ? 'Desactivar'
+                                              : 'Reactivar',
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                              child: StatusPill(
+                                supplier.active ? 'Activo' : 'Inactivo',
+                                supplier.active
+                                    ? AppColors.green
+                                    : AppColors.tertiaryInk,
+                                icon:
+                                    supplier.active
+                                        ? Icons.verified_rounded
+                                        : Icons.pause_circle_rounded,
+                              ),
                             ),
-                            title: Text(
-                                supplier.active ? 'Desactivar' : 'Reactivar'),
-                          ),
-                        ),
-                      ],
-                      child: StatusPill(
-                        supplier.active ? 'Activo' : 'Inactivo',
-                        supplier.active
-                            ? AppColors.green
-                            : AppColors.tertiaryInk,
-                        icon: supplier.active
-                            ? Icons.verified_rounded
-                            : Icons.pause_circle_rounded,
-                      ),
-                    ),
                   ),
               ],
             ),
@@ -4346,12 +4602,14 @@ class _ReportsModuleState extends State<_ReportsModule> {
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
     final cycles = store.cycles;
-    final activeSelection = cycles.any((cycle) => cycle.id == selectedCycleId)
-        ? selectedCycleId
-        : null;
-    final visibleCycles = activeSelection == null
-        ? cycles
-        : cycles.where((cycle) => cycle.id == activeSelection).toList();
+    final activeSelection =
+        cycles.any((cycle) => cycle.id == selectedCycleId)
+            ? selectedCycleId
+            : null;
+    final visibleCycles =
+        activeSelection == null
+            ? cycles
+            : cycles.where((cycle) => cycle.id == activeSelection).toList();
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -4360,11 +4618,11 @@ class _ReportsModuleState extends State<_ReportsModule> {
             initialValue: activeSelection,
             decoration: const InputDecoration(labelText: 'Ciclo'),
             items: [
-                for (final cycle in cycles)
-                  DropdownMenuItem(
-                    value: cycle.id,
-                    child: Text('${cycle.crop} · ${cycle.parcel}'),
-                  ),
+              for (final cycle in cycles)
+                DropdownMenuItem(
+                  value: cycle.id,
+                  child: Text('${cycle.crop} · ${cycle.parcel}'),
+                ),
             ],
             onChanged: (value) => setState(() => selectedCycleId = value),
           ),
@@ -4372,7 +4630,7 @@ class _ReportsModuleState extends State<_ReportsModule> {
         const InfoBanner(
           title: 'Indicadores sincronizados',
           text:
-                'Los indicadores se calculan con ciclos, gastos, cosechas y ventas recibidos del servidor.',
+              'Los indicadores se calculan con ciclos, gastos, cosechas y ventas recibidos del servidor.',
           tone: AppColors.blue,
           icon: Icons.ios_share_rounded,
         ),
@@ -4387,35 +4645,35 @@ class _ReportsModuleState extends State<_ReportsModule> {
         else
           for (final cycle in visibleCycles) ...[
             Card(
-                child: Column(
-                  children: [
-                    ListTile(
-                      leading: const IconBox(Icons.assessment_rounded),
-                      title: Text('${cycle.crop} · ${cycle.parcel}'),
-                      subtitle: Text('Estado: ${cycle.status.name}'),
-                    ),
-                    ListTile(
-                      title: const Text('Costo total'),
-                      trailing: Text(money.format(cycle.cost)),
-                    ),
-                    ListTile(
-                      title: const Text('Ingresos'),
-                      trailing: Text(money.format(cycle.income)),
-                    ),
-                    ListTile(
-                      title: const Text('Ganancia'),
-                      trailing: Text(money.format(cycle.profit)),
-                    ),
-                    ListTile(
-                      title: const Text('Cosecha'),
-                      trailing: Text('${quantity.format(cycle.harvestedKg)} kg'),
-                    ),
-                    ListTile(
-                      title: const Text('Costo por kg'),
-                      trailing: Text(money.format(cycle.costPerKg)),
-                    ),
-                  ],
-                ),
+              child: Column(
+                children: [
+                  ListTile(
+                    leading: const IconBox(Icons.assessment_rounded),
+                    title: Text('${cycle.crop} · ${cycle.parcel}'),
+                    subtitle: Text('Estado: ${cycle.status.name}'),
+                  ),
+                  ListTile(
+                    title: const Text('Costo total'),
+                    trailing: Text(money.format(cycle.cost)),
+                  ),
+                  ListTile(
+                    title: const Text('Ingresos'),
+                    trailing: Text(money.format(cycle.income)),
+                  ),
+                  ListTile(
+                    title: const Text('Ganancia'),
+                    trailing: Text(money.format(cycle.profit)),
+                  ),
+                  ListTile(
+                    title: const Text('Cosecha'),
+                    trailing: Text('${quantity.format(cycle.harvestedKg)} kg'),
+                  ),
+                  ListTile(
+                    title: const Text('Costo por kg'),
+                    trailing: Text(money.format(cycle.costPerKg)),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 12),
           ],
@@ -4434,34 +4692,33 @@ class _CompanyModule extends StatelessWidget {
     final plan = company?['plan'];
     final quotas = company?['cuotas'];
     final planName = plan is Map ? '${plan['nombre']}' : 'Plan';
-    final maxUsers = quotas is Map
-        ? int.tryParse('${quotas['maxUsuarios']}') ?? 0
-        : 0;
-    final activeUsers = quotas is Map
-        ? int.tryParse('${quotas['usuariosActivos']}') ?? 0
-        : 0;
-    final maxParcels = quotas is Map
-        ? int.tryParse('${quotas['maxParcelas']}') ?? 0
-        : 0;
-    final activeParcels = quotas is Map
-        ? int.tryParse('${quotas['parcelasActivas']}') ?? 0
-        : 0;
+    final maxUsers =
+        quotas is Map ? int.tryParse('${quotas['maxUsuarios']}') ?? 0 : 0;
+    final activeUsers =
+        quotas is Map ? int.tryParse('${quotas['usuariosActivos']}') ?? 0 : 0;
+    final maxParcels =
+        quotas is Map ? int.tryParse('${quotas['maxParcelas']}') ?? 0 : 0;
+    final activeParcels =
+        quotas is Map ? int.tryParse('${quotas['parcelasActivas']}') ?? 0 : 0;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         if (company == null)
           InfoBanner(
             title: 'Datos de empresa no disponibles',
-            text: store.dataError ?? 'Inicia sesión como administrador para consultar la empresa.',
+            text:
+                store.dataError ??
+                'Inicia sesión como administrador para consultar la empresa.',
             tone: AppColors.amber,
           )
         else ...[
           HeroCard(
             eyebrow: 'Suscripción · ${company['estadoSuscripcion'] ?? '—'}',
             value: planName,
-            subtitle: plan is Map
-                ? '\$${plan['precioMensual'] ?? '—'} MXN / mes'
-                : 'Información del plan',
+            subtitle:
+                plan is Map
+                    ? '\$${plan['precioMensual'] ?? '—'} MXN / mes'
+                    : 'Información del plan',
           ),
           const SizedBox(height: 20),
           Card(
@@ -4525,8 +4782,7 @@ class _CompanyModule extends StatelessWidget {
                   MiniBar(
                     label: 'Parcelas',
                     value: '$activeParcels / $maxParcels',
-                    progress:
-                        maxParcels == 0 ? 0 : activeParcels / maxParcels,
+                    progress: maxParcels == 0 ? 0 : activeParcels / maxParcels,
                   ),
                 ],
               ),
@@ -4552,47 +4808,50 @@ Future<void> _editCompany(
   final address = TextEditingController(text: '${company['direccion'] ?? ''}');
   final confirmed = await showDialog<bool>(
     context: context,
-    builder: (dialogContext) => AlertDialog(
-      title: const Text('Editar empresa'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: name,
-              decoration: const InputDecoration(labelText: 'Nombre comercial'),
+    builder:
+        (dialogContext) => AlertDialog(
+          title: const Text('Editar empresa'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: name,
+                  decoration: const InputDecoration(
+                    labelText: 'Nombre comercial',
+                  ),
+                ),
+                TextField(
+                  controller: legalName,
+                  decoration: const InputDecoration(labelText: 'Razón social'),
+                ),
+                TextField(
+                  controller: email,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(labelText: 'Correo'),
+                ),
+                TextField(
+                  controller: phone,
+                  decoration: const InputDecoration(labelText: 'Teléfono'),
+                ),
+                TextField(
+                  controller: address,
+                  decoration: const InputDecoration(labelText: 'Dirección'),
+                ),
+              ],
             ),
-            TextField(
-              controller: legalName,
-              decoration: const InputDecoration(labelText: 'Razón social'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancelar'),
             ),
-            TextField(
-              controller: email,
-              keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(labelText: 'Correo'),
-            ),
-            TextField(
-              controller: phone,
-              decoration: const InputDecoration(labelText: 'Teléfono'),
-            ),
-            TextField(
-              controller: address,
-              decoration: const InputDecoration(labelText: 'Dirección'),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Guardar'),
             ),
           ],
         ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(dialogContext, false),
-          child: const Text('Cancelar'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(dialogContext, true),
-          child: const Text('Guardar'),
-        ),
-      ],
-    ),
   );
   if (confirmed == true && context.mounted) {
     try {
@@ -4604,8 +4863,7 @@ Future<void> _editCompany(
             'razonSocial': legalName.text.trim(),
           'correo': email.text.trim(),
           if (phone.text.trim().isNotEmpty) 'telefono': phone.text.trim(),
-          if (address.text.trim().isNotEmpty)
-            'direccion': address.text.trim(),
+          if (address.text.trim().isNotEmpty) 'direccion': address.text.trim(),
         },
       );
       if (context.mounted) {
@@ -4621,9 +4879,9 @@ Future<void> _editCompany(
       }
     } on ApiException catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error.message)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
       }
     }
   }
@@ -4668,9 +4926,10 @@ class _ProfileModule extends StatelessWidget {
                       : 'Nombre, correo y teléfono',
                 ),
                 trailing: const Icon(Icons.chevron_right_rounded),
-                onTap: !store.isAuthenticated || role == UserRole.admin
-                    ? () => _editProfile(context, store, user)
-                    : null,
+                onTap:
+                    !store.isAuthenticated || role == UserRole.admin
+                        ? () => _editProfile(context, store, user)
+                        : null,
               ),
               ListTile(
                 leading: const IconBox(Icons.password_rounded),
@@ -4688,7 +4947,10 @@ class _ProfileModule extends StatelessWidget {
 }
 
 Future<void> _editProfile(
-    BuildContext context, AppStore store, AppUser user) async {
+  BuildContext context,
+  AppStore store,
+  AppUser user,
+) async {
   final name = TextEditingController(text: user.name);
   final email = TextEditingController(text: user.email);
   final phone = TextEditingController(text: user.phone);
@@ -4696,111 +4958,115 @@ Future<void> _editProfile(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
-    builder: (sheetContext) => Padding(
-      padding: EdgeInsets.fromLTRB(
-        20,
-        0,
-        20,
-        MediaQuery.viewInsetsOf(sheetContext).bottom + 20,
-      ),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Editar datos personales',
-                style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 16),
-            TextField(
-              controller: name,
-              textCapitalization: TextCapitalization.words,
-              decoration: const InputDecoration(
-                labelText: 'Nombre completo',
-                prefixIcon: Icon(Icons.person_rounded),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: email,
-              enabled: !store.isAuthenticated,
-              keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(
-                labelText: 'Correo electrónico',
-                prefixIcon: Icon(Icons.alternate_email_rounded),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: phone,
-              keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(
-                labelText: 'Teléfono',
-                prefixIcon: Icon(Icons.phone_rounded),
-              ),
-            ),
-            const SizedBox(height: 20),
-            FilledButton.icon(
-              onPressed: () async {
-                final nameParts = name.text.trim().split(RegExp(r'\s+'));
-                if (nameParts.length < 2 ||
-                    nameParts.first.length < 2 ||
-                    nameParts.skip(1).join(' ').length < 2 ||
-                    !email.text.contains('@')) {
-                  return;
-                }
-                try {
-                  if (store.isAuthenticated) {
-                    final userId = int.tryParse(user.id ?? '');
-                    if (userId == null) {
-                      throw const ApiException(
-                        'No se pudo identificar al usuario actual.',
-                      );
+    builder:
+        (sheetContext) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            0,
+            20,
+            MediaQuery.viewInsetsOf(sheetContext).bottom + 20,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Editar datos personales',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: name,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(
+                    labelText: 'Nombre completo',
+                    prefixIcon: Icon(Icons.person_rounded),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: email,
+                  enabled: !store.isAuthenticated,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(
+                    labelText: 'Correo electrónico',
+                    prefixIcon: Icon(Icons.alternate_email_rounded),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: phone,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(
+                    labelText: 'Teléfono',
+                    prefixIcon: Icon(Icons.phone_rounded),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                FilledButton.icon(
+                  onPressed: () async {
+                    final nameParts = name.text.trim().split(RegExp(r'\s+'));
+                    if (nameParts.length < 2 ||
+                        nameParts.first.length < 2 ||
+                        nameParts.skip(1).join(' ').length < 2 ||
+                        !email.text.contains('@')) {
+                      return;
                     }
-                    await store.updateResource(
-                      'usuarios/$userId',
-                      body: {
-                        'nombre': nameParts.first,
-                        'apellido': nameParts.skip(1).join(' '),
-                        if (phone.text.trim() != user.phone)
-                          'telefono': phone.text.trim(),
-                      },
-                    );
-                  }
-                store.updateCurrentUser(
-                  name: name.text.trim(),
-                  email: store.isAuthenticated
-                      ? user.email
-                      : email.text.trim(),
-                  phone: phone.text.trim(),
-                );
-                if (!sheetContext.mounted) return;
-                Navigator.pop(sheetContext);
-                if (context.mounted && store.isAuthenticated) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        store.dataError == null
-                            ? 'Perfil actualizado en el servidor.'
-                            : 'Perfil actualizado, pero no se pudo refrescar: ${store.dataError}',
-                      ),
-                    ),
-                  );
-                }
-                } on ApiException catch (error) {
-                  if (sheetContext.mounted) {
-                    ScaffoldMessenger.of(sheetContext).showSnackBar(
-                      SnackBar(content: Text(error.message)),
-                    );
-                  }
-                }
-              },
-              icon: const Icon(Icons.save_rounded),
-              label: const Text('Guardar cambios'),
+                    try {
+                      if (store.isAuthenticated) {
+                        final userId = int.tryParse(user.id ?? '');
+                        if (userId == null) {
+                          throw const ApiException(
+                            'No se pudo identificar al usuario actual.',
+                          );
+                        }
+                        await store.updateResource(
+                          'usuarios/$userId',
+                          body: {
+                            'nombre': nameParts.first,
+                            'apellido': nameParts.skip(1).join(' '),
+                            if (phone.text.trim() != user.phone)
+                              'telefono': phone.text.trim(),
+                          },
+                        );
+                      }
+                      store.updateCurrentUser(
+                        name: name.text.trim(),
+                        email:
+                            store.isAuthenticated
+                                ? user.email
+                                : email.text.trim(),
+                        phone: phone.text.trim(),
+                      );
+                      if (!sheetContext.mounted) return;
+                      Navigator.pop(sheetContext);
+                      if (context.mounted && store.isAuthenticated) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              store.dataError == null
+                                  ? 'Perfil actualizado en el servidor.'
+                                  : 'Perfil actualizado, pero no se pudo refrescar: ${store.dataError}',
+                            ),
+                          ),
+                        );
+                      }
+                    } on ApiException catch (error) {
+                      if (sheetContext.mounted) {
+                        ScaffoldMessenger.of(
+                          sheetContext,
+                        ).showSnackBar(SnackBar(content: Text(error.message)));
+                      }
+                    }
+                  },
+                  icon: const Icon(Icons.save_rounded),
+                  label: const Text('Guardar cambios'),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
-      ),
-    ),
   );
   name.dispose();
   email.dispose();
@@ -4820,141 +5086,160 @@ Future<void> _changePassword(BuildContext context) async {
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
-    builder: (sheetContext) => StatefulBuilder(
-      builder: (context, setModalState) {
-        final valid = current.text.isNotEmpty &&
-            password.text.length >= 8 &&
-            password.text == confirmation.text &&
-            !isSaving;
-        return Padding(
-          padding: EdgeInsets.fromLTRB(
-            20,
-            0,
-            20,
-            MediaQuery.viewInsetsOf(sheetContext).bottom + 20,
-          ),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text('Cambiar contraseña',
-                    style: Theme.of(context).textTheme.headlineSmall),
-                const SizedBox(height: 8),
-                Text(
-                  'Usa al menos 8 caracteres para proteger tu cuenta.',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const SizedBox(height: 20),
-                TextField(
-                  controller: current,
-                  obscureText: true,
-                  onChanged: (_) => setModalState(() {}),
-                  decoration: const InputDecoration(
-                    labelText: 'Contraseña actual',
-                    prefixIcon: Icon(Icons.lock_outline_rounded),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: password,
-                  obscureText: true,
-                  onChanged: (_) => setModalState(() {}),
-                  decoration: const InputDecoration(
-                    labelText: 'Nueva contraseña',
-                    helperText: 'Mínimo 8 caracteres.',
-                    prefixIcon: Icon(Icons.password_rounded),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: confirmation,
-                  obscureText: true,
-                  onChanged: (_) => setModalState(() {}),
-                  decoration: InputDecoration(
-                    labelText: 'Confirmar contraseña',
-                    errorText: confirmation.text.isNotEmpty &&
-                            password.text != confirmation.text
-                        ? 'Las contraseñas no coinciden'
-                        : null,
-                    prefixIcon: const Icon(Icons.verified_user_outlined),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
+    builder:
+        (sheetContext) => StatefulBuilder(
+          builder: (context, setModalState) {
+            final valid =
+                current.text.isNotEmpty &&
+                password.text.length >= 8 &&
+                password.text == confirmation.text &&
+                !isSaving;
+            return Padding(
+              padding: EdgeInsets.fromLTRB(
+                20,
+                0,
+                20,
+                MediaQuery.viewInsetsOf(sheetContext).bottom + 20,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(sheetContext),
-                      child: const Text('Cancelar'),
+                    Text(
+                      'Cambiar contraseña',
+                      style: Theme.of(context).textTheme.headlineSmall,
                     ),
-                    const SizedBox(width: 8),
-                    FilledButton.icon(
-                      onPressed: valid
-                          ? () async {
-                              setModalState(() => isSaving = true);
-                              try {
-                                if (isBackendSession) {
-                                  await apiClient.dio.patch<void>(
-                                    'auth/contrasena/cambiar',
-                                    data: {
-                                      'contrasenaActual': current.text,
-                                      'nuevaContrasena': password.text,
-                                    },
-                                  );
-                                  await apiClient.tokenStorage.clearTokens();
-                                  await store.signOut();
-                                }
-                                if (!sheetContext.mounted) return;
-                                Navigator.pop(sheetContext);
-                                if (pageContext.mounted) {
-                                  if (isBackendSession) {
-                                    pageContext.go('/login');
+                    const SizedBox(height: 8),
+                    Text(
+                      'Usa al menos 8 caracteres para proteger tu cuenta.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 20),
+                    TextField(
+                      controller: current,
+                      obscureText: true,
+                      onChanged: (_) => setModalState(() {}),
+                      decoration: const InputDecoration(
+                        labelText: 'Contraseña actual',
+                        prefixIcon: Icon(Icons.lock_outline_rounded),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: password,
+                      obscureText: true,
+                      onChanged: (_) => setModalState(() {}),
+                      decoration: const InputDecoration(
+                        labelText: 'Nueva contraseña',
+                        helperText: 'Mínimo 8 caracteres.',
+                        prefixIcon: Icon(Icons.password_rounded),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: confirmation,
+                      obscureText: true,
+                      onChanged: (_) => setModalState(() {}),
+                      decoration: InputDecoration(
+                        labelText: 'Confirmar contraseña',
+                        errorText:
+                            confirmation.text.isNotEmpty &&
+                                    password.text != confirmation.text
+                                ? 'Las contraseñas no coinciden'
+                                : null,
+                        prefixIcon: const Icon(Icons.verified_user_outlined),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(sheetContext),
+                          child: const Text('Cancelar'),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton.icon(
+                          onPressed:
+                              valid
+                                  ? () async {
+                                    setModalState(() => isSaving = true);
+                                    try {
+                                      if (isBackendSession) {
+                                        await apiClient.dio.patch<void>(
+                                          'auth/contrasena/cambiar',
+                                          data: {
+                                            'contrasenaActual': current.text,
+                                            'nuevaContrasena': password.text,
+                                          },
+                                        );
+                                        await apiClient.tokenStorage
+                                            .clearTokens();
+                                        await store.signOut();
+                                      }
+                                      if (!sheetContext.mounted) return;
+                                      Navigator.pop(sheetContext);
+                                      if (pageContext.mounted) {
+                                        if (isBackendSession) {
+                                          pageContext.go('/login');
+                                        }
+                                        ScaffoldMessenger.of(
+                                          pageContext,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              isBackendSession
+                                                  ? 'La contraseña se actualizó.'
+                                                  : 'Contraseña actualizada.',
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                    } on DioException catch (error) {
+                                      if (sheetContext.mounted) {
+                                        ScaffoldMessenger.of(
+                                          sheetContext,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              ApiException.fromDio(
+                                                error,
+                                              ).message,
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                    } on ApiException catch (error) {
+                                      if (sheetContext.mounted) {
+                                        ScaffoldMessenger.of(
+                                          sheetContext,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: Text(error.message),
+                                          ),
+                                        );
+                                      }
+                                    } finally {
+                                      if (sheetContext.mounted) {
+                                        setModalState(() => isSaving = false);
+                                      }
+                                    }
                                   }
-                                  ScaffoldMessenger.of(pageContext).showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                        isBackendSession
-                                            ? 'La contraseña se actualizó.'
-                                            : 'Contraseña actualizada.',
-                                      ),
-                                    ),
-                                  );
-                                }
-                              } on DioException catch (error) {
-                                if (sheetContext.mounted) {
-                                  ScaffoldMessenger.of(sheetContext).showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                        ApiException.fromDio(error).message,
-                                      ),
-                                    ),
-                                  );
-                                }
-                              } on ApiException catch (error) {
-                                if (sheetContext.mounted) {
-                                  ScaffoldMessenger.of(sheetContext).showSnackBar(
-                                    SnackBar(content: Text(error.message)),
-                                  );
-                                }
-                              } finally {
-                                if (sheetContext.mounted) {
-                                  setModalState(() => isSaving = false);
-                                }
-                              }
-                            }
-                          : null,
-                      icon: const Icon(Icons.check_circle_outline_rounded),
-                      label: Text(isSaving ? 'Actualizando…' : 'Actualizar'),
+                                  : null,
+                          icon: const Icon(Icons.check_circle_outline_rounded),
+                          label: Text(
+                            isSaving ? 'Actualizando…' : 'Actualizar',
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-              ],
-            ),
-          ),
-        );
-      },
-    ),
+              ),
+            );
+          },
+        ),
   );
   current.dispose();
   password.dispose();
@@ -5007,20 +5292,26 @@ class _HelpModule extends StatelessWidget {
           child: Column(
             children: [
               ListTile(
-                  title: Text('Manual del Administrador'),
-                  trailing: Text('PDF')),
+                title: Text('Manual del Administrador'),
+                trailing: Text('PDF'),
+              ),
               ListTile(
-                  title: Text('Manual del Capturista'), trailing: Text('PDF')),
+                title: Text('Manual del Capturista'),
+                trailing: Text('PDF'),
+              ),
               ListTile(
-                  title: Text('Manual del Contador'), trailing: Text('PDF')),
+                title: Text('Manual del Contador'),
+                trailing: Text('PDF'),
+              ),
             ],
           ),
         ),
         const SizedBox(height: 16),
         OutlinedButton.icon(
-          onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Canal de soporte simulado')),
-          ),
+          onPressed:
+              () => ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Canal de soporte simulado')),
+              ),
           icon: const Icon(Icons.support_agent_rounded),
           label: const Text('Contactar soporte'),
         ),

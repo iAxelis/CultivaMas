@@ -6,6 +6,7 @@ import { DomainExceptionFilter } from './common/filters/domain-exception.filter'
 import { SerializacionInterceptor } from './common/interceptors/serializacion.interceptor';
 import { configurarSwagger } from './config/openapi.config';
 import { configurarBodyParsers } from './config/body-parser.config';
+import { configurarCors } from './config/cors.config';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bodyParser: false });
@@ -28,6 +29,7 @@ async function bootstrap() {
 
   // Seguridad HTTP
   app.use(helmet());
+  configurarCors(app);
 
   // Prefijo global de API versionada (sección 3.23)
   app.setGlobalPrefix('api/v1');
