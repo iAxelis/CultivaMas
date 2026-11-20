@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:cultiva_plus/data/api_client.dart';
 import 'package:cultiva_plus/data/backend_repository.dart';
 import 'package:dio/dio.dart';
@@ -95,6 +97,63 @@ void main() {
 
     expect(requestedPages, [1, 2]);
     expect(rows.map((row) => row['id']), [1, 2]);
+  });
+
+  test('descarga exportaciones y carga adjuntos como multipart', () async {
+    final dio = Dio(BaseOptions(baseUrl: 'https://cultiva.test/api/v1/'));
+    final repository = BackendRepository(
+      apiClient: ApiClient(
+        dio: dio,
+        refreshDio: Dio(BaseOptions(baseUrl: 'https://cultiva.test/api/v1/')),
+        tokenStorage: _MemoryTokenStorage(),
+      ),
+    );
+    final requests = <RequestOptions>[];
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          requests.add(options);
+          if (options.path.endsWith('exportaciones/rentabilidad')) {
+            handler.resolve(
+              Response<List<int>>(
+                requestOptions: options,
+                data: [1, 2, 3],
+                headers: Headers.fromMap({
+                  'content-disposition': ['attachment; filename="reporte.pdf"'],
+                  'content-type': ['application/pdf'],
+                }),
+              ),
+            );
+            return;
+          }
+          handler.resolve(
+            Response<Map<String, dynamic>>(
+              requestOptions: options,
+              data: {'id': 12},
+            ),
+          );
+        },
+      ),
+    );
+
+    final download = await repository.download(
+      'reportes/exportaciones/rentabilidad',
+      queryParameters: const {'formato': 'pdf'},
+    );
+    final attachment = await repository.uploadAttachment(
+      'gastos/12/adjuntos',
+      filename: 'ticket.pdf',
+      bytes: Uint8List.fromList([1, 2, 3]),
+    );
+
+    expect(download.bytes, [1, 2, 3]);
+    expect(download.filename, 'reporte.pdf');
+    expect(download.contentType, 'application/pdf');
+    expect(attachment['id'], 12);
+    expect(requests[0].queryParameters, {'formato': 'pdf'});
+    expect(requests[1].method, 'POST');
+    expect(requests[1].data, isA<FormData>());
+    expect((requests[1].data as FormData).files.single.key, 'archivo');
   });
 }
 
