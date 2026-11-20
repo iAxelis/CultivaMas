@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:dio/dio.dart';
+import 'package:file_saver/file_saver.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -12,9 +14,95 @@ import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import '../../data/api_client.dart';
 import '../../data/auth_service.dart';
+import '../../data/backend_repository.dart';
 import '../../data/models.dart';
 import '../../data/store.dart';
 import '../access/access_widgets.dart';
+
+Future<void> _downloadReport(
+  BuildContext context, {
+  required String path,
+  required String format,
+}) async {
+  try {
+    final file = await BackendRepository().download(
+      path,
+      queryParameters: {'formato': format},
+    );
+    if (!context.mounted) return;
+    final filename = file.filename.split(RegExp(r'[/\\]')).last;
+    final dot = filename.lastIndexOf('.');
+    final extension = dot > 0 ? filename.substring(dot + 1) : format;
+    final name = dot > 0 ? filename.substring(0, dot) : filename;
+    await FileSaver.instance.saveFile(
+      name: name,
+      bytes: file.bytes,
+      fileExtension: extension,
+      mimeType: switch (format) {
+        'pdf' => MimeType.pdf,
+        'xlsx' => MimeType.microsoftExcel,
+        'csv' => MimeType.csv,
+        _ => MimeType.other,
+      },
+    );
+  } on ApiException catch (error) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    }
+  } on PlatformException catch (error) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.message ?? 'No se pudo guardar el reporte.'),
+        ),
+      );
+    }
+  }
+}
+
+Future<void> _deleteResource(
+  BuildContext context,
+  AppStore store, {
+  required String path,
+  required String label,
+}) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder:
+        (dialogContext) => AlertDialog(
+          title: Text('Eliminar $label'),
+          content: const Text(
+            'Esta acción dará de baja el registro. Si tiene información asociada, el servidor puede impedirlo.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Eliminar'),
+            ),
+          ],
+        ),
+  );
+  if (confirmed != true) return;
+  try {
+    await store.deleteResource(path);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('$label eliminado correctamente.')));
+  } on ApiException catch (error) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    }
+  }
+}
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -180,8 +268,7 @@ class RecoveryPasswordScreen extends StatefulWidget {
   final String initialToken;
 
   @override
-  State<RecoveryPasswordScreen> createState() =>
-      _RecoveryPasswordScreenState();
+  State<RecoveryPasswordScreen> createState() => _RecoveryPasswordScreenState();
 }
 
 class _RecoveryPasswordScreenState extends State<RecoveryPasswordScreen> {
@@ -3721,9 +3808,33 @@ class _PropertiesModule extends StatelessWidget {
             property.name,
             action:
                 canEdit
-                    ? TextButton(
-                      onPressed: () => context.push('/catalog-form/property'),
-                      child: const Text('+ Predio'),
+                    ? PopupMenuButton<String>(
+                      tooltip: 'Acciones del predio',
+                      onSelected: (value) {
+                        if (value == 'edit') {
+                          context.push(
+                            '/catalog-form/property?id=${property.id}',
+                          );
+                        } else if (value == 'delete') {
+                          _deleteResource(
+                            context,
+                            store,
+                            path: 'predios/${property.id}',
+                            label: 'predio',
+                          );
+                        }
+                      },
+                      itemBuilder:
+                          (_) => const [
+                            PopupMenuItem(
+                              value: 'edit',
+                              child: Text('Editar predio'),
+                            ),
+                            PopupMenuItem(
+                              value: 'delete',
+                              child: Text('Dar de baja'),
+                            ),
+                          ],
                     )
                     : null,
           ),
@@ -3756,6 +3867,37 @@ class _PropertiesModule extends StatelessWidget {
                       subtitle: Text(
                         '${parcel.area.toStringAsFixed(1)} ha · ${parcel.soil}',
                       ),
+                      trailing:
+                          canEdit
+                              ? PopupMenuButton<String>(
+                                tooltip: 'Acciones de la parcela',
+                                onSelected: (value) {
+                                  if (value == 'edit') {
+                                    context.push(
+                                      '/catalog-form/parcel?id=${parcel.id}',
+                                    );
+                                  } else if (value == 'delete') {
+                                    _deleteResource(
+                                      context,
+                                      store,
+                                      path: 'parcelas/${parcel.id}',
+                                      label: 'parcela',
+                                    );
+                                  }
+                                },
+                                itemBuilder:
+                                    (_) => const [
+                                      PopupMenuItem(
+                                        value: 'edit',
+                                        child: Text('Editar parcela'),
+                                      ),
+                                      PopupMenuItem(
+                                        value: 'delete',
+                                        child: Text('Dar de baja'),
+                                      ),
+                                    ],
+                              )
+                              : null,
                     ),
                 ],
               ),
@@ -3837,7 +3979,34 @@ class _ClientsModule extends StatelessWidget {
                     ),
                     trailing:
                         store.isAuthenticated
-                            ? null
+                            ? PopupMenuButton<String>(
+                              tooltip: 'Acciones del cliente',
+                              onSelected: (value) {
+                                if (value == 'edit') {
+                                  context.push(
+                                    '/catalog-form/client?id=${client.id}',
+                                  );
+                                } else if (value == 'delete') {
+                                  _deleteResource(
+                                    context,
+                                    store,
+                                    path: 'clientes/${client.id}',
+                                    label: 'cliente',
+                                  );
+                                }
+                              },
+                              itemBuilder:
+                                  (_) => const [
+                                    PopupMenuItem(
+                                      value: 'edit',
+                                      child: Text('Editar'),
+                                    ),
+                                    PopupMenuItem(
+                                      value: 'delete',
+                                      child: Text('Dar de baja'),
+                                    ),
+                                  ],
+                            )
                             : PopupMenuButton<String>(
                               tooltip: 'Acciones del cliente',
                               onSelected: (value) {
@@ -4013,10 +4182,30 @@ class _UserCard extends StatelessWidget {
           onSelected: (value) {
             if (value == 'toggle') {
               _toggleUser(context, context.read<AppStore>(), user);
+            } else if (value == 'edit' && user.id != null) {
+              context.push('/catalog-form/user?id=${user.id}');
+            } else if (value == 'delete' && user.id != null) {
+              _deleteResource(
+                context,
+                context.read<AppStore>(),
+                path: 'usuarios/${user.id}',
+                label: 'usuario',
+              );
             }
           },
           itemBuilder:
               (_) => [
+                PopupMenuItem(
+                  enabled:
+                      user.id != null &&
+                      user != context.read<AppStore>().currentUser,
+                  value: 'edit',
+                  child: const ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.edit_rounded),
+                    title: Text('Editar'),
+                  ),
+                ),
                 PopupMenuItem(
                   enabled: user != context.read<AppStore>().currentUser,
                   value: 'toggle',
@@ -4350,8 +4539,7 @@ class _CategoriesModule extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
-    final canEdit =
-        store.isAuthenticated && store.role == UserRole.admin;
+    final canEdit = store.isAuthenticated && store.role == UserRole.admin;
     final categories = store.catalogs['expenseCategories'] ?? [];
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -4535,7 +4723,34 @@ class _SuppliersModule extends StatelessWidget {
                     subtitle: Text('${supplier.kind} · ${supplier.detail}'),
                     trailing:
                         store.isAuthenticated
-                            ? null
+                            ? PopupMenuButton<String>(
+                              tooltip: 'Acciones del proveedor',
+                              onSelected: (value) {
+                                if (value == 'edit') {
+                                  context.push(
+                                    '/catalog-form/supplier?id=${supplier.id}',
+                                  );
+                                } else if (value == 'delete') {
+                                  _deleteResource(
+                                    context,
+                                    store,
+                                    path: 'proveedores/${supplier.id}',
+                                    label: 'proveedor',
+                                  );
+                                }
+                              },
+                              itemBuilder:
+                                  (_) => const [
+                                    PopupMenuItem(
+                                      value: 'edit',
+                                      child: Text('Editar'),
+                                    ),
+                                    PopupMenuItem(
+                                      value: 'delete',
+                                      child: Text('Dar de baja'),
+                                    ),
+                                  ],
+                            )
                             : PopupMenuButton<String>(
                               tooltip: 'Acciones del proveedor',
                               onSelected: (value) {
@@ -4597,6 +4812,7 @@ class _ReportsModule extends StatefulWidget {
 
 class _ReportsModuleState extends State<_ReportsModule> {
   String? selectedCycleId;
+  String selectedFormat = 'pdf';
 
   @override
   Widget build(BuildContext context) {
@@ -4627,6 +4843,79 @@ class _ReportsModuleState extends State<_ReportsModule> {
             onChanged: (value) => setState(() => selectedCycleId = value),
           ),
         const SizedBox(height: 16),
+        DropdownButtonFormField<String>(
+          initialValue: selectedFormat,
+          decoration: const InputDecoration(labelText: 'Formato de descarga'),
+          items: const [
+            DropdownMenuItem(value: 'pdf', child: Text('PDF')),
+            DropdownMenuItem(value: 'xlsx', child: Text('Excel (XLSX)')),
+            DropdownMenuItem(value: 'csv', child: Text('CSV')),
+          ],
+          onChanged:
+              (value) => setState(() {
+                if (value != null) selectedFormat = value;
+              }),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            OutlinedButton.icon(
+              onPressed:
+                  () => _downloadReport(
+                    context,
+                    path: 'reportes/exportaciones/rentabilidad',
+                    format: selectedFormat,
+                  ),
+              icon: const Icon(Icons.download_rounded),
+              label: const Text('Exportar rentabilidad'),
+            ),
+            OutlinedButton.icon(
+              onPressed:
+                  () => _downloadReport(
+                    context,
+                    path: 'reportes/exportaciones/cuentas-por-cobrar',
+                    format: selectedFormat,
+                  ),
+              icon: const Icon(Icons.download_rounded),
+              label: const Text('Exportar cartera'),
+            ),
+            if (activeSelection != null) ...[
+              OutlinedButton.icon(
+                onPressed:
+                    () => _downloadReport(
+                      context,
+                      path: 'reportes/exportaciones/ciclos/$activeSelection',
+                      format: selectedFormat,
+                    ),
+                icon: const Icon(Icons.download_rounded),
+                label: const Text('Exportar ciclo'),
+              ),
+              Builder(
+                builder: (context) {
+                  final selected = cycles.firstWhere(
+                    (cycle) => cycle.id == activeSelection,
+                  );
+                  final parcelId = selected.parcelId;
+                  if (parcelId == null) return const SizedBox.shrink();
+                  return OutlinedButton.icon(
+                    onPressed:
+                        () => _downloadReport(
+                          context,
+                          path:
+                              'reportes/exportaciones/parcelas/$parcelId/comparativo',
+                          format: selectedFormat,
+                        ),
+                    icon: const Icon(Icons.download_rounded),
+                    label: const Text('Exportar comparativo de parcela'),
+                  );
+                },
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 12),
         const InfoBanner(
           title: 'Indicadores sincronizados',
           text:
@@ -5285,35 +5574,13 @@ class _HelpModule extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(height: 20),
-        const SectionTitle('Manuales por rol'),
-        const SizedBox(height: 12),
-        const Card(
-          child: Column(
-            children: [
-              ListTile(
-                title: Text('Manual del Administrador'),
-                trailing: Text('PDF'),
-              ),
-              ListTile(
-                title: Text('Manual del Capturista'),
-                trailing: Text('PDF'),
-              ),
-              ListTile(
-                title: Text('Manual del Contador'),
-                trailing: Text('PDF'),
-              ),
-            ],
-          ),
-        ),
         const SizedBox(height: 16),
-        OutlinedButton.icon(
-          onPressed:
-              () => ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Canal de soporte simulado')),
-              ),
-          icon: const Icon(Icons.support_agent_rounded),
-          label: const Text('Contactar soporte'),
+        const InfoBanner(
+          title: 'Ayuda por ahora dentro de la aplicación',
+          text:
+              'El contacto directo y los manuales descargables no están configurados para esta cuenta.',
+          tone: AppColors.blue,
+          icon: Icons.info_outline_rounded,
         ),
       ],
     );

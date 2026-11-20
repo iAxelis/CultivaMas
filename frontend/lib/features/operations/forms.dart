@@ -1,10 +1,13 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import '../../data/api_client.dart';
+import '../../data/backend_repository.dart';
 import '../../data/models.dart';
 import '../../data/store.dart';
 
@@ -61,6 +64,9 @@ class _DataFormScreenState extends State<DataFormScreen> {
   String saleUnit = 'kg';
   String paymentMethod = 'Efectivo';
   String closeReason = 'Fin de temporada';
+  final BackendRepository _filesRepository = BackendRepository();
+  String? attachmentName;
+  Uint8List? attachmentBytes;
   bool totalMatches = true;
   bool isSaving = false;
 
@@ -406,7 +412,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
   }
 
   List<Widget> _fields(AppStore store) {
-    return switch (widget.type) {
+    final fields = switch (widget.type) {
       'expense' => _expenseFields(store),
       'harvest' => _harvestFields(store),
       'loss' => _lossFields(store),
@@ -416,6 +422,89 @@ class _DataFormScreenState extends State<DataFormScreen> {
       'close' => _closeFields(store),
       _ => _activityFields(store),
     };
+    if (!const {
+      'expense',
+      'activity',
+      'sale',
+      'payment',
+    }.contains(widget.type)) {
+      return fields;
+    }
+    return [...fields, const SizedBox(height: 20), _attachmentPicker()];
+  }
+
+  Widget _attachmentPicker() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        OutlinedButton.icon(
+          onPressed: isSaving ? null : _pickAttachment,
+          icon: const Icon(Icons.attach_file_rounded),
+          label: Text(
+            attachmentName == null
+                ? 'Adjuntar archivo (opcional)'
+                : 'Cambiar archivo',
+          ),
+        ),
+        if (attachmentName != null) ...[
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(child: Text(attachmentName!)),
+              IconButton(
+                tooltip: 'Quitar archivo',
+                onPressed:
+                    isSaving
+                        ? null
+                        : () => setState(() {
+                          attachmentName = null;
+                          attachmentBytes = null;
+                        }),
+                icon: const Icon(Icons.close_rounded),
+              ),
+            ],
+          ),
+        ],
+        const Text('PDF, JPG, PNG o WEBP · máximo 10 MB'),
+      ],
+    );
+  }
+
+  Future<void> _pickAttachment() async {
+    try {
+      final files = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['pdf', 'jpg', 'jpeg', 'png', 'webp'],
+      );
+      if (files.isEmpty) return;
+      final file = files.first;
+      final size = await file.length();
+      if (size == null || size > 10 * 1024 * 1024) {
+        throw const ApiException('El archivo debe pesar como máximo 10 MB.');
+      }
+      final bytes = await file.readAsBytes();
+      if (!mounted) return;
+      setState(() {
+        attachmentName = file.name;
+        attachmentBytes = bytes;
+      });
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    } on PlatformException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              error.message ?? 'No se pudo seleccionar el archivo.',
+            ),
+          ),
+        );
+      }
+    }
   }
 
   Widget _cycleSelector(AppStore store) {
@@ -724,27 +813,6 @@ class _DataFormScreenState extends State<DataFormScreen> {
             errorText: totalMatches ? null : 'Revisa el total',
           ),
         ),
-      ),
-      const SizedBox(height: 20),
-      OutlinedButton.icon(
-        onPressed:
-            () => showModalBottomSheet<void>(
-              context: context,
-              showDragHandle: true,
-              builder:
-                  (sheetContext) => const Padding(
-                    padding: EdgeInsets.all(24),
-                    child: InfoBanner(
-                      title: 'Foto de ticket',
-                      text:
-                          'Placeholder: la cámara y carga de archivos no se implementan en este wireframe.',
-                      tone: AppColors.blue,
-                      icon: Icons.camera_alt_outlined,
-                    ),
-                  ),
-            ),
-        icon: const Icon(Icons.attach_file_rounded),
-        label: const Text('Adjuntar foto del ticket'),
       ),
       const SizedBox(height: 20),
       FieldBlock(
@@ -1494,6 +1562,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
       final selectedCycleId = cycleId;
       final cycleNumericId =
           selectedCycleId == null ? null : _numericId(selectedCycleId, 'ciclo');
+      Map<String, dynamic>? createdResource;
       switch (widget.type) {
         case 'activity':
           final activityTypeRow = _rowByName(
@@ -1505,7 +1574,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
             store.users.where((item) => item.name == responsible),
           );
           final responsibleId = user?.id ?? store.currentUser.id;
-          await store.createResource(
+          createdResource = await store.createResource(
             'actividades',
             body: {
               'cicloId': cycleNumericId,
@@ -1528,7 +1597,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
             expenseCategory,
             'una categoría de gasto',
           );
-          await store.createResource(
+          createdResource = await store.createResource(
             'gastos',
             body: {
               'cicloId': cycleNumericId,
@@ -1591,7 +1660,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
             orElse:
                 () => throw const ApiException('Selecciona un cliente activo.'),
           );
-          await store.createResource(
+          createdResource = await store.createResource(
             'ventas',
             body: {
               'cicloId': cycleNumericId,
@@ -1626,7 +1695,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
           if (saleId == null) {
             throw const ApiException('No se encontró la venta del cobro.');
           }
-          await store.createResource(
+          createdResource = await store.createResource(
             'ventas/$saleId/cobros',
             body: {
               'fecha': _dateValue(dateController),
@@ -1690,6 +1759,33 @@ class _DataFormScreenState extends State<DataFormScreen> {
           throw const ApiException('Esta operación no está disponible.');
       }
 
+      if (attachmentBytes != null) {
+        final attachmentId = createdResource?['id']?.toString();
+        if (attachmentId == null || attachmentId.isEmpty) {
+          throw const ApiException(
+            'El registro se guardó, pero el servidor no devolvió su identificador para adjuntar el archivo.',
+          );
+        }
+        try {
+          await _filesRepository.uploadAttachment(
+            '${_attachmentEntityPath(widget.type)}/$attachmentId/adjuntos',
+            filename: attachmentName!,
+            bytes: attachmentBytes!,
+          );
+        } on ApiException catch (error) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'El registro se guardó, pero no se pudo cargar el adjunto: ${error.message}',
+              ),
+            ),
+          );
+          context.pop();
+          return;
+        }
+      }
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1711,6 +1807,14 @@ class _DataFormScreenState extends State<DataFormScreen> {
       if (mounted) setState(() => isSaving = false);
     }
   }
+
+  String _attachmentEntityPath(String type) => switch (type) {
+    'expense' => 'gastos',
+    'activity' => 'actividades',
+    'sale' => 'ventas',
+    'payment' => 'cobros',
+    _ => throw const ApiException('Este registro no admite adjuntos.'),
+  };
 }
 
 class _SaleAvailability extends StatelessWidget {

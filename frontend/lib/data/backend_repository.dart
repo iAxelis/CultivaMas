@@ -1,6 +1,20 @@
+import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
 
 import 'api_client.dart';
+
+class DownloadedFile {
+  const DownloadedFile({
+    required this.bytes,
+    required this.filename,
+    required this.contentType,
+  });
+
+  final Uint8List bytes;
+  final String filename;
+  final String? contentType;
+}
 
 class BackendRepository {
   BackendRepository({ApiClient? apiClient})
@@ -99,6 +113,57 @@ class BackendRepository {
   Future<void> delete(String path) async {
     try {
       await _apiClient.dio.delete<void>(path);
+    } on DioException catch (error) {
+      throw ApiException.fromDio(error);
+    }
+  }
+
+  Future<DownloadedFile> download(
+    String path, {
+    Map<String, Object?> queryParameters = const {},
+  }) async {
+    try {
+      final response = await _apiClient.dio.get<List<int>>(
+        path,
+        queryParameters: queryParameters,
+        options: Options(responseType: ResponseType.bytes),
+      );
+      final contentDisposition =
+          response.headers.value('content-disposition') ?? '';
+      final filename =
+          RegExp(
+            'filename="([^"]+)"',
+            caseSensitive: false,
+          ).firstMatch(contentDisposition)?.group(1)?.trim();
+      final safeFilename =
+          filename == null || filename.isEmpty
+              ? 'cultiva-exportacion'
+              : filename;
+      final data = response.data;
+      if (data == null || data.isEmpty) {
+        throw const ApiException('El servidor devolvió un archivo vacío.');
+      }
+      return DownloadedFile(
+        bytes: Uint8List.fromList(data),
+        filename: safeFilename,
+        contentType: response.headers.value(Headers.contentTypeHeader),
+      );
+    } on DioException catch (error) {
+      throw ApiException.fromDio(error);
+    }
+  }
+
+  Future<Map<String, dynamic>> uploadAttachment(
+    String path, {
+    required String filename,
+    required Uint8List bytes,
+  }) async {
+    try {
+      final formData = FormData.fromMap({
+        'archivo': MultipartFile.fromBytes(bytes, filename: filename),
+      });
+      final response = await _apiClient.dio.post<dynamic>(path, data: formData);
+      return _objectFromJson(response.data);
     } on DioException catch (error) {
       throw ApiException.fromDio(error);
     }
