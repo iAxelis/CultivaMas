@@ -32,11 +32,8 @@ Para correr el backend en tu entorno local sin necesidad de Docker:
    npm ci
    ```
 2. **Configurar Variables de Entorno:**
-   Copia el archivo de ejemplo a tu archivo local `.env`:
-   ```powershell
-   copy .env.example .env
-   ```
-   Abre `.env` y ajusta la cadena de conexión con tus credenciales de MySQL:
+   Abre `backend/.env` y ajusta `DATABASE_URL` con tus credenciales de MySQL.
+   Conserva las demás variables del archivo:
    ```env
    DATABASE_URL="mysql://root:tu_password@localhost:3306/cultiva_backend"
    ```

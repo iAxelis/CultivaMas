@@ -20,9 +20,9 @@ Si vas a integrar el frontend o probar la API localmente en Windows:
 npm ci
 
 # 2. Configurar variables de entorno
-copy .env.example .env
+# Edita el archivo .env y configura DATABASE_URL sin borrar las demás variables
 ```
-> *Edita el archivo `.env` con tus credenciales de base de datos (`DATABASE_URL`).*
+> *Configura tus credenciales de base de datos (`DATABASE_URL`) en `backend/.env`.*
 
 ### 3. Base de Datos y Semillas
 ```powershell
@@ -41,6 +41,11 @@ npm run start:dev
 * **API Base:** `http://localhost:3000/api/v1`
 * **Swagger UI:** `http://localhost:3000/api/docs`
 * **Health Check:** `http://localhost:3000/api/v1/health`
+
+El backend permite solicitudes CORS locales en desarrollo para Flutter Web.
+En producción, configura `CORS_ORIGINS` con los orígenes web autorizados,
+separados por comas (por ejemplo, `https://app.ejemplo.com`). Las apps móviles
+y solicitudes sin encabezado `Origin` no requieren esta configuración.
 
 ---
 

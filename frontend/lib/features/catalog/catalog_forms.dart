@@ -9,9 +9,10 @@ import '../../data/models.dart';
 import '../../data/store.dart';
 
 class CatalogFormScreen extends StatefulWidget {
-  const CatalogFormScreen({required this.type, super.key});
+  const CatalogFormScreen({required this.type, this.recordId, super.key});
 
   final String type;
+  final String? recordId;
 
   @override
   State<CatalogFormScreen> createState() => _CatalogFormScreenState();
@@ -34,9 +35,75 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
   String selectedSoilType = '';
   bool active = true;
   bool isSaving = false;
+  bool _initialized = false;
 
   double? get _areaValue =>
       double.tryParse(area.text.trim().replaceAll(',', '.'));
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_initialized || widget.recordId == null) return;
+    _initialized = true;
+    final store = context.read<AppStore>();
+    switch (widget.type) {
+      case 'property':
+        for (final item in store.properties) {
+          if (item.id == widget.recordId) {
+            name.text = item.name;
+            area.text = item.area.toString();
+            detail.text = item.location;
+            break;
+          }
+        }
+        break;
+      case 'parcel':
+        for (final item in store.properties) {
+          for (final parcel in item.parcels) {
+            if (parcel.id == widget.recordId) {
+              name.text = parcel.name;
+              area.text = parcel.area.toString();
+              selectedPropertyId = item.id;
+              selectedSoilType = parcel.soil;
+              coordinates.text =
+                  parcel.coordinates.trim() == ',' ? '' : parcel.coordinates;
+            }
+          }
+        }
+        break;
+      case 'client':
+      case 'supplier':
+        final partners =
+            widget.type == 'client' ? store.clients : store.suppliers;
+        for (final partner in partners) {
+          if (partner.id == widget.recordId) {
+            name.text = partner.name;
+            rfc.text = partner.rfc;
+            phone.text = partner.phone;
+            email.text = partner.email;
+            address.text = partner.address;
+            clientType = partner.kind;
+            active = partner.active;
+            break;
+          }
+        }
+        break;
+      case 'user':
+        for (final user in store.users) {
+          if (user.id == widget.recordId) {
+            final nameParts = user.name.trim().split(RegExp(r'\s+'));
+            name.text = nameParts.first;
+            lastName.text = nameParts.skip(1).join(' ');
+            detail.text = user.email;
+            phone.text = user.phone;
+            role = user.role;
+            active = user.active;
+            break;
+          }
+          break;
+        }
+    }
+  }
 
   @override
   void dispose() {
@@ -54,13 +121,15 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
   }
 
   String get title => switch (widget.type) {
-        'property' => 'Nuevo predio · F-03',
-        'parcel' => 'Nueva parcela · F-04',
-        'user' => 'Nuevo usuario · F-02',
-        'client' => 'Nuevo cliente',
-        'supplier' => 'Nuevo proveedor',
+        'property' => _isEditing ? 'Editar predio' : 'Nuevo predio · F-03',
+        'parcel' => _isEditing ? 'Editar parcela' : 'Nueva parcela · F-04',
+        'user' => _isEditing ? 'Editar usuario' : 'Nuevo usuario · F-02',
+        'client' => _isEditing ? 'Editar cliente' : 'Nuevo cliente',
+        'supplier' => _isEditing ? 'Editar proveedor' : 'Nuevo proveedor',
         _ => 'Nuevo registro',
       };
+
+  bool get _isEditing => widget.recordId != null;
 
   @override
   Widget build(BuildContext context) {
@@ -90,14 +159,29 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
         _coordinateValues != null || coordinates.text.trim().isEmpty;
     final valid = name.text.trim().isNotEmpty &&
         hasValidCoordinates &&
-        (widget.type != 'property' || parsedArea > 0) &&
+        (widget.type != 'property' ||
+            parsedArea > 0 &&
+                (!_isEditing ||
+                    property != null && parsedArea >= property.occupiedArea)) &&
         (widget.type != 'parcel' ||
-            property != null && store.canAddParcel(property, parsedArea)) &&
+            property != null &&
+                (store.canAddParcel(property, parsedArea) ||
+                    _isEditing &&
+                        property.parcels.any(
+                          (parcel) => parcel.id == widget.recordId,
+                        ) &&
+                        parsedArea <=
+                            property.availableArea +
+                                property.parcels
+                                    .firstWhere(
+                                      (parcel) => parcel.id == widget.recordId,
+                                    )
+                                    .area)) &&
         (widget.type != 'user' ||
             detail.text.contains('@') &&
                 lastName.text.trim().isNotEmpty &&
-                password.text.length >= 6 &&
-                hasUserQuota);
+                (_isEditing || password.text.length >= 6) &&
+                (_isEditing || hasUserQuota));
     if (widget.type == 'parcel' && property == null) {
       return Scaffold(
         appBar: AppBar(title: Text(title)),
@@ -335,14 +419,18 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
         const SizedBox(height: 20),
         FieldBlock(
           label: 'Correo',
-          help: 'Se usará para iniciar sesión.',
+          help: _isEditing
+              ? 'El correo de acceso no se puede cambiar desde esta pantalla.'
+              : 'Se usará para iniciar sesión.',
           child: TextFormField(
             controller: detail,
             onChanged: (_) => setState(() {}),
+            readOnly: _isEditing,
             keyboardType: TextInputType.emailAddress,
             decoration: const InputDecoration(hintText: 'usuario@rancho.mx'),
           ),
         ),
+        if (!_isEditing) ...[
         const SizedBox(height: 20),
         FieldBlock(
           label: 'Contraseña temporal',
@@ -351,9 +439,12 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
             controller: password,
             onChanged: (_) => setState(() {}),
             obscureText: true,
-            decoration: const InputDecoration(hintText: 'Contraseña temporal'),
+            decoration: const InputDecoration(
+              hintText: 'Contraseña temporal',
+            ),
           ),
         ),
+        ],
         const SizedBox(height: 20),
         FieldBlock(
           label: 'Rol',
@@ -538,16 +629,24 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
       switch (widget.type) {
         case 'property':
           if (store.isAuthenticated) {
-            await store.createResource(
-              'predios',
-              body: {
-                'nombre': name.text.trim(),
-                'superficieTotal': _areaValue!,
-                if (detail.text.trim().isNotEmpty)
-                  'ubicacion': detail.text.trim(),
-                ..._coordinatesPayload(),
-              },
-            );
+            final body = {
+              'nombre': name.text.trim(),
+              'superficieTotal': _areaValue!,
+              if (detail.text.trim().isNotEmpty)
+                'ubicacion': detail.text.trim(),
+              ..._coordinatesPayload(),
+            };
+            if (_isEditing) {
+              await store.updateResource(
+                'predios/${widget.recordId}',
+                body: body,
+              );
+            } else {
+              await store.createResource(
+                'predios',
+                body: body,
+              );
+            }
           } else {
             store.addProperty(
               FarmProperty(
@@ -570,17 +669,22 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
               (row) => '${row['nombre']}' == selectedSoilType,
             );
             final soil = soilRow.isEmpty ? null : soilRow.first;
-            await store.createResource(
-              'parcelas',
-              body: {
+            final body = {
                 'predioId': _numericId(property.id, 'predio'),
                 'nombre': name.text.trim(),
                 'superficie': _areaValue!,
                 if (soil != null)
                   'tipoSueloId': _numericId('${soil['id']}', 'tipo de suelo'),
                 ..._coordinatesPayload(),
-              },
-            );
+              };
+            if (_isEditing) {
+              await store.updateResource(
+                'parcelas/${widget.recordId}',
+                body: body,
+              );
+            } else {
+              await store.createResource('parcelas', body: body);
+            }
           } else {
             store.addParcel(
               property,
@@ -596,9 +700,19 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
           break;
         case 'user':
           if (store.isAuthenticated) {
-            await store.createResource(
-              'usuarios',
-              body: {
+            final body = _isEditing
+                ? {
+                    'nombre': name.text.trim(),
+                    'apellido': lastName.text.trim(),
+                    'rolCodigo': switch (role) {
+                      UserRole.admin => 'ADMIN',
+                      UserRole.capturista => 'CAPTURISTA',
+                      UserRole.contador => 'CONTADOR',
+                    },
+                    if (phone.text.trim().isNotEmpty)
+                      'telefono': phone.text.trim(),
+                  }
+                : {
                 'nombre': name.text.trim(),
                 'apellido': lastName.text.trim(),
                 'correo': detail.text.trim(),
@@ -610,8 +724,15 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
                 },
                 if (phone.text.trim().isNotEmpty)
                   'telefono': phone.text.trim(),
-              },
-            );
+              };
+            if (_isEditing) {
+              await store.updateResource(
+                'usuarios/${widget.recordId}',
+                body: body,
+              );
+            } else {
+              await store.createResource('usuarios', body: body);
+            }
           } else {
             store.addUser(
               AppUser(name: '${name.text.trim()} ${lastName.text.trim()}', email: detail.text.trim(), role: role),
@@ -620,9 +741,7 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
           break;
         case 'client':
           if (store.isAuthenticated) {
-            await store.createResource(
-              'clientes',
-              body: {
+            final body = {
                 'nombre': name.text.trim(),
                 'tipo': clientType,
                 if (rfc.text.trim().isNotEmpty) 'rfc': rfc.text.trim(),
@@ -630,8 +749,15 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
                   'telefono': phone.text.trim(),
                 if (email.text.trim().isNotEmpty)
                   'correo': email.text.trim(),
-              },
-            );
+              };
+            if (_isEditing) {
+              await store.updateResource(
+                'clientes/${widget.recordId}',
+                body: body,
+              );
+            } else {
+              await store.createResource('clientes', body: body);
+            }
           } else {
             store.addClient(
               BusinessPartner(
@@ -649,9 +775,7 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
           break;
         case 'supplier':
           if (store.isAuthenticated) {
-            await store.createResource(
-              'proveedores',
-              body: {
+            final body = {
                 'nombre': name.text.trim(),
                 if (rfc.text.trim().isNotEmpty) 'rfc': rfc.text.trim(),
                 if (phone.text.trim().isNotEmpty)
@@ -660,8 +784,15 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
                   'correo': email.text.trim(),
                 if (address.text.trim().isNotEmpty)
                   'direccion': address.text.trim(),
-              },
-            );
+              };
+            if (_isEditing) {
+              await store.updateResource(
+                'proveedores/${widget.recordId}',
+                body: body,
+              );
+            } else {
+              await store.createResource('proveedores', body: body);
+            }
           } else {
             store.addSupplier(
               BusinessPartner(
@@ -687,9 +818,13 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
           content: Text(
             store.isAuthenticated
                 ? store.dataError == null
-                    ? 'Registro guardado en el servidor.'
+                    ? _isEditing
+                        ? 'Cambios guardados en el servidor.'
+                        : 'Registro guardado en el servidor.'
                     : 'Se guardó, pero no se pudo actualizar la información: ${store.dataError}'
-                : 'Registro guardado en memoria.',
+                : _isEditing
+                    ? 'Cambios guardados.'
+                    : 'Registro guardado en memoria.',
           ),
         ),
       );

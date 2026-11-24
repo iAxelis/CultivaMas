@@ -156,8 +156,10 @@ GoRouter createAppRouter(AppStore store) => GoRouter(
     ),
     GoRoute(
       path: '/catalog-form/:type',
-      builder:
-          (_, state) => CatalogFormScreen(type: state.pathParameters['type']!),
+      builder: (_, state) => CatalogFormScreen(
+        type: state.pathParameters['type']!,
+        recordId: state.uri.queryParameters['id'],
+      ),
     ),
     GoRoute(
       path: '/module/:slug',

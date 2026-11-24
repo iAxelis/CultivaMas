@@ -34,12 +34,12 @@ flutter pub get
 
 ### Backend
 
-Configura las variables locales a partir de la plantilla y actualiza las
-credenciales de base de datos en `backend/.env`:
+Edita `backend/.env` y configura ahí tus credenciales de base de datos. No
+reemplaces el archivo: conserva las demás variables necesarias para iniciar la
+aplicación.
 
 ```powershell
 cd backend
-Copy-Item .env.example .env
 npm run start:dev
 ```
 
