@@ -1,0 +1,12 @@
+node_modules
+dist
+coverage
+.nyc_output
+.git
+.env
+.env.*
+*.log
+test
+docs
+storage_uploads
+storage_uploads_test

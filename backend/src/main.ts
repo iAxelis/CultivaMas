@@ -54,7 +54,7 @@ async function bootstrap() {
   configurarSwagger(app);
 
   const port = process.env.PORT ?? 3000;
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
   const logger = new Logger('Bootstrap');
   logger.log(`Servidor iniciado en http://localhost:${port}/api/v1`);
   logger.log(`Swagger disponible en http://localhost:${port}/api/docs`);

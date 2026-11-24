@@ -9,6 +9,8 @@ ventas, cobros, catálogos, reportes y auditoría.
 - Flutter 3.29 o superior
 - Dart 3.7 o superior
 
+Flutter Web se validó en este entorno con Flutter 3.47.2 y Dart 3.13.5.
+
 ## Ejecutar
 
 ```bash
@@ -24,15 +26,19 @@ flutter run -d chrome
 
 ## Conexión con el backend
 
-El frontend consume la API versionada en `http://localhost:3000/api/v1` por
-defecto. La URL se puede cambiar al ejecutar Flutter:
+El cliente centraliza la URL de la API mediante el `dart-define` `API_BASE_URL`.
+El valor predeterminado de localhost es únicamente para desarrollo en la misma
+máquina; especifica la URL apropiada para cada entorno:
 
 ```powershell
-flutter run --dart-define=API_BASE_URL=http://localhost:3000/api/v1
+flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:3000/api/v1
+flutter build web --release --dart-define=API_BASE_URL=https://api.ejemplo.com/api/v1
 ```
 
-Para un emulador Android, configura la dirección del host accesible desde el
-emulador (por ejemplo, `http://10.0.2.2:3000/api/v1`). La app autentica contra
+Para un emulador Android, usa la dirección del host accesible desde el emulador
+(por ejemplo, `http://10.0.2.2:3000/api/v1`). En un dispositivo físico usa una
+IP o dominio accesible desde el dispositivo. Para despliegues públicos utiliza
+HTTPS. La app autentica contra
 `POST /auth/login`, guarda los tokens en almacenamiento seguro, restaura la
 sesión mediante `GET /auth/me` y renueva tokens rotatorios al recibir un 401.
 El registro empresarial usa el flujo OTP del backend; también están conectados
@@ -43,6 +49,11 @@ Para que el enlace del correo abra la app, configura en el backend
 `http://localhost:8080/restablecer-contrasena` y ejecuta Flutter Web con
 `flutter run -d web-server --web-port 8080`. También puedes pegar el enlace
 completo del correo en el formulario de recuperación.
+
+`API_BASE_URL` queda incorporada en el artefacto al compilar Web. Genera un
+artefacto distinto por ambiente y permite el origen del frontend en
+`CORS_ORIGINS` del backend. El almacenamiento seguro en navegador requiere un
+contexto seguro (HTTPS o localhost).
 
 ## Organización del código
 

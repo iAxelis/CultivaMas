@@ -1,0 +1,85 @@
+services:
+  db:
+    image: mariadb:11.4
+    environment:
+      MARIADB_DATABASE: ${DB_DATABASE:-cultiva}
+      MARIADB_USER: ${DB_USER:?Define DB_USER en .env}
+      MARIADB_PASSWORD: ${DB_PASSWORD:?Define DB_PASSWORD en .env}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?Define DB_ROOT_PASSWORD en .env}
+    volumes:
+      - database_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  backend:
+    image: cultiva-plus-backend:local
+    build:
+      context: ./backend
+      target: runtime
+    env_file:
+      - ./backend/.env
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: "3000"
+      DATABASE_URL: mysql://${DB_USER}:${DB_PASSWORD}@db:3306/${DB_DATABASE:-cultiva}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
+      STORAGE_LOCAL_PATH: /app/storage_uploads
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - backend_uploads:/app/storage_uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/v1/health').then(async r => { const d = await r.json(); process.exit(r.ok && d.database === 'ok' ? 0 : 1); }).catch(() => process.exit(1))"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  migrate:
+    image: cultiva-plus-migrations:local
+    build:
+      context: ./backend
+      target: migrations
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: mysql://${DB_USER}:${DB_PASSWORD}@db:3306/${DB_DATABASE:-cultiva}
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles:
+      - tools
+
+  e2e-db:
+    image: mariadb:11.4
+    profiles:
+      - e2e
+    environment:
+      MARIADB_DATABASE: rentabilidad_agricola_test
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?Define DB_ROOT_PASSWORD en .env}
+      MARIADB_ROOT_HOST: "%"
+    ports:
+      - "127.0.0.1:3308:3306"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  database_data:
+  backend_uploads:
