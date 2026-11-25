@@ -19,6 +19,8 @@ RUN npm run build
 RUN npm prune --omit=dev --ignore-scripts
 
 FROM dependencies AS migrations
+COPY src ./src
+COPY tsconfig.json ./
 USER node
 CMD ["npx", "prisma", "migrate", "deploy"]
 
@@ -35,4 +37,4 @@ RUN mkdir -p /app/storage_uploads && chown node:node /app/storage_uploads
 
 USER node
 EXPOSE 3000
-CMD ["node", "dist/main.js"]
+CMD ["node", "dist/src/main.js"]

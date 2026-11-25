@@ -104,18 +104,34 @@ firma y el identificador de la aplicación.
 
 ## Backend y base de datos con Docker Compose
 
-1. Si no existe `.env` en la raíz, cópialo desde `.env.example`.
-2. Define `DB_PASSWORD` y `DB_ROOT_PASSWORD` en ese archivo. Usa contraseñas
-   URL-safe (por ejemplo, solo letras y números), porque Compose las inserta en
-   la URL de conexión.
-3. Si no existe `backend/.env`, cópialo desde `backend/.env.example` y completa
-   `JWT_SECRET` y `JWT_REFRESH_SECRET`. En producción, configura además todas
-   las variables requeridas para correo, almacenamiento y enlaces HTTPS.
-4. Inicia la base, aplica las migraciones explícitamente y luego levanta la API:
+Compose usa MySQL 8.0.46, requerido por la migración de indicadores que utiliza
+`LEFT JOIN LATERAL`; esta configuración es independiente de la instancia
+MariaDB que puedas usar en desarrollo local.
+
+1. Crea `.env` en la raíz a partir de `.env.example` y reemplaza los
+   placeholders de `DB_PASSWORD` y `DB_ROOT_PASSWORD`. Usa contraseñas URL-safe
+   (solo letras y números), porque Compose las inserta en la URL de conexión.
+2. Conserva `backend/.env` con la configuración de NestJS y sus integraciones.
+   Compose carga ese archivo para usar los valores configurados de JWT, R2 y
+   Brevo. No lo reemplaces si ya contiene tu configuración. Si no existe,
+   créalo desde `backend/.env.example`; para habilitar R2 o Brevo tendrás que
+   introducir sus credenciales en ese archivo.
+
+```powershell
+Copy-Item backend\.env.example backend\.env
+```
+
+Compose reemplaza `DATABASE_URL` para que el backend se conecte al servicio
+`db`, aunque ese archivo mantenga una URL para ejecutarlo localmente.
+
+3. Inicia la base, aplica las migraciones y carga los catálogos iniciales
+(incluidos los tres planes). Ejecuta el seed solo en una base nueva o cuando
+necesites sincronizar catálogos:
 
 ```powershell
 docker compose up -d db
 docker compose --profile tools run --rm migrate
+docker compose --profile tools run --rm migrate npx prisma db seed
 docker compose up --build -d backend
 ```
 
