@@ -66,8 +66,17 @@ class AppStore extends ChangeNotifier {
     }
     return AppUser(name: '', email: '', role: role);
   }
+
   bool get isAuthenticated => _sessionUser != null;
   bool notificationsEnabled = true;
+
+  bool canEditRecord(ActivityRecord record) =>
+      !isAuthenticated ||
+      role == UserRole.admin ||
+      record.createdById == _sessionUser?.id;
+
+  bool canDeleteRecord(ActivityRecord record) =>
+      !isAuthenticated || role == UserRole.admin;
 
   double availableKg(FarmCycle cycle) {
     final sold = sales
@@ -127,15 +136,17 @@ class AppStore extends ChangeNotifier {
       final canManagePartners = !isCapturista;
       final canViewSales = !isCapturista;
       final canViewActivities = !const {UserRole.contador}.contains(role);
-      final companyFuture = isAdmin
-          ? _backendRepository.read('empresas/mi-empresa')
-          : Future<Map<String, dynamic>?>.value(null);
-      final alertsFuture = !isCapturista
-          ? _backendRepository.read(
-              'reportes/alertas',
-              queryParameters: const {'page': 1, 'limit': 100},
-            )
-          : Future<Map<String, dynamic>?>.value(null);
+      final companyFuture =
+          isAdmin
+              ? _backendRepository.read('empresas/mi-empresa')
+              : Future<Map<String, dynamic>?>.value(null);
+      final alertsFuture =
+          !isCapturista
+              ? _backendRepository.read(
+                'reportes/alertas',
+                queryParameters: const {'page': 1, 'limit': 100},
+              )
+              : Future<Map<String, dynamic>?>.value(null);
 
       final requests = <String, Future<List<Map<String, dynamic>>>>{
         'cycles': _backendRepository.list(
@@ -292,8 +303,45 @@ class AppStore extends ChangeNotifier {
     await loadWorkspace();
   }
 
+  Future<List<Map<String, dynamic>>> listResource(
+    String path, {
+    Map<String, Object?> queryParameters = const {},
+  }) => _backendRepository.list(path, queryParameters: queryParameters);
+
+  Future<Map<String, dynamic>> uploadAttachment(
+    String path, {
+    required String filename,
+    required Uint8List bytes,
+  }) => _backendRepository.uploadAttachment(
+    path,
+    filename: filename,
+    bytes: bytes,
+  );
+
+  Future<DownloadedFile> downloadAttachment(String id) async {
+    final link = await _backendRepository.read('adjuntos/$id/enlace-descarga');
+    final token = link['token'];
+    if (token is! String || token.isEmpty) {
+      throw const ApiException(
+        'El servidor no devolvió un enlace válido para el archivo.',
+      );
+    }
+    return _backendRepository.download(
+      'adjuntos/descarga',
+      queryParameters: {'token': token},
+    );
+  }
+
+  Future<void> deleteAttachment(String id) =>
+      _backendRepository.delete('adjuntos/$id');
+
   Future<void> cancelSale(Sale sale) async {
     await _backendRepository.patchAction('ventas/${sale.id}/cancelar');
+    await loadWorkspace();
+  }
+
+  Future<void> annulPayment(String id) async {
+    await _backendRepository.patchAction('cobros/cobros/$id/anular');
     await loadWorkspace();
   }
 
@@ -419,6 +467,10 @@ class AppStore extends ChangeNotifier {
               cycleId: _id(row['cicloId']),
               value: _decimal(row['horasTrabajadas']),
               unit: 'h',
+              resourcePath: 'actividades',
+              createdById: _id(row['creadoPorId']),
+              sourceData: row,
+              attachmentEntityPath: 'actividades',
             ),
           for (final row in data['expenses']!)
             ActivityRecord(
@@ -430,6 +482,10 @@ class AppStore extends ChangeNotifier {
               cycleId: _id(row['cicloId']),
               value: _decimal(row['total']),
               unit: 'MXN',
+              resourcePath: 'gastos',
+              createdById: _id(row['creadoPorId']),
+              sourceData: row,
+              attachmentEntityPath: 'gastos',
             ),
           for (final row in data['harvests']!)
             ActivityRecord(
@@ -441,6 +497,9 @@ class AppStore extends ChangeNotifier {
               cycleId: _id(row['cicloId']),
               value: _decimal(row['cantidad']),
               unit: 'kg',
+              resourcePath: 'cosechas',
+              createdById: _id(row['creadoPorId']),
+              sourceData: row,
             ),
           for (final row in data['losses']!)
             ActivityRecord(
@@ -452,6 +511,9 @@ class AppStore extends ChangeNotifier {
               cycleId: _id(row['cicloId']),
               value: _decimal(row['cantidad']),
               unit: 'kg',
+              resourcePath: 'mermas',
+              createdById: _id(row['creadoPorId']),
+              sourceData: row,
             ),
         ]..sort((left, right) => right.date.compareTo(left.date)),
       );
@@ -594,18 +656,21 @@ class AppStore extends ChangeNotifier {
       ..addAll(
         rows is List
             ? rows.whereType<Map>().map(
-                (row) => ProfitabilityAlert(
-                  severity: switch (row['severidad']) {
-                    'ALTA' => 'Alta',
-                    'MEDIA' => 'Media',
-                    'BAJA' => 'Baja',
-                    'INFORMATIVA' => 'Informativa',
-                    _ => 'Informativa',
-                  },
-                  title: _text(row['codigo'], fallback: 'Alerta'),
-                  detail: _text(row['mensaje'], fallback: 'Revisa el registro relacionado.'),
+              (row) => ProfitabilityAlert(
+                severity: switch (row['severidad']) {
+                  'ALTA' => 'Alta',
+                  'MEDIA' => 'Media',
+                  'BAJA' => 'Baja',
+                  'INFORMATIVA' => 'Informativa',
+                  _ => 'Informativa',
+                },
+                title: _text(row['codigo'], fallback: 'Alerta'),
+                detail: _text(
+                  row['mensaje'],
+                  fallback: 'Revisa el registro relacionado.',
                 ),
-              )
+              ),
+            )
             : const <ProfitabilityAlert>[],
       );
   }
@@ -822,10 +887,7 @@ class AppStore extends ChangeNotifier {
       if (userId == null) {
         throw const ApiException('No se pudo identificar al usuario.');
       }
-      await updateResource(
-        'usuarios/$userId',
-        body: {'activo': !user.active},
-      );
+      await updateResource('usuarios/$userId', body: {'activo': !user.active});
       return;
     }
     user.active = !user.active;
@@ -858,11 +920,7 @@ class AppStore extends ChangeNotifier {
   bool canAccess(String module) {
     if (role == UserRole.admin) return true;
     if (role == UserRole.capturista) {
-      return const {
-        'categorias',
-        'perfil',
-        'ayuda',
-      }.contains(module);
+      return const {'categorias', 'perfil', 'ayuda'}.contains(module);
     }
     return !const {'usuarios', 'empresa', 'auditoria'}.contains(module);
   }

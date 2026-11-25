@@ -81,11 +81,17 @@ cuando el rol tiene permiso. Las capturas operativas, ciclos, catálogos y
 usuarios se envían a la API; las ventas se cancelan en el servidor. La pantalla
 de captura permite actualizar los datos con el gesto de refrescar.
 
-Los reportes y comparativos visibles se calculan con datos sincronizados. La
-descarga de archivos de exportación, carga de adjuntos y edición/eliminación
-general de registros aún no están conectadas desde la app. Flutter Web requiere
-que el origen esté permitido por CORS en el
-backend; en desarrollo se permiten orígenes locales y en producción debe
-configurarse `CORS_ORIGINS`. CORS no aplica a las apps nativas.
-El cliente no utiliza credenciales locales de demostración al iniciar sesión.
+Los reportes y comparativos se calculan con datos sincronizados y pueden
+descargarse como PDF, XLSX o CSV. Desde la app también se pueden editar
+actividades, gastos, cosechas y mermas; eliminar registros con permisos de
+administrador; consultar, subir y descargar adjuntos de actividades, gastos,
+ventas y cobros; y anular cobros. El backend valida permisos y reglas de negocio
+en cada operación. Los adjuntos admitidos son PDF, JPG, PNG y WEBP de hasta
+10 MB; eliminarlos requiere permiso de administrador.
+
+Para que los flujos funcionen en un entorno real, la app necesita una API
+accesible con una base de datos configurada y las integraciones de almacenamiento
+que se vayan a utilizar. Flutter Web requiere permitir su origen en
+`CORS_ORIGINS` del backend; CORS no aplica a las apps nativas. El cliente no
+utiliza credenciales locales de demostración al iniciar sesión.
 # Cultiva-

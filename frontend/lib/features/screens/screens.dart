@@ -18,6 +18,7 @@ import '../../data/backend_repository.dart';
 import '../../data/models.dart';
 import '../../data/store.dart';
 import '../access/access_widgets.dart';
+import '../operations/record_management.dart';
 
 Future<void> _downloadReport(
   BuildContext context, {
@@ -1946,11 +1947,19 @@ class CaptureHomeScreen extends StatelessWidget {
                         width: 260,
                         child: _RecentRecordCard(
                           record: record,
-                          editable: !store.isAuthenticated,
+                          hideMoney: store.role == UserRole.capturista,
+                          canEdit: store.canEditRecord(record),
+                          canDelete: store.canDeleteRecord(record),
                           onEdit:
                               () => _editRecentRecord(context, store, record),
                           onDelete:
                               () => _deleteRecentRecord(context, store, record),
+                          onAttachments:
+                              () => showRecordAttachmentsSheet(
+                                context,
+                                store,
+                                record,
+                              ),
                         ),
                       );
                     },
@@ -2087,21 +2096,29 @@ class _RecordsChart extends StatelessWidget {
 class _RecentRecordCard extends StatelessWidget {
   const _RecentRecordCard({
     required this.record,
-    required this.editable,
+    required this.hideMoney,
+    required this.canEdit,
+    required this.canDelete,
     required this.onEdit,
     required this.onDelete,
+    required this.onAttachments,
   });
 
   final ActivityRecord record;
-  final bool editable;
+  final bool hideMoney;
+  final bool canEdit;
+  final bool canDelete;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final VoidCallback onAttachments;
 
   @override
   Widget build(BuildContext context) {
     final color = _recordColor(record.kind);
     final displayValue =
-        record.value == null
+        record.kind == 'Gasto' && hideMoney
+            ? 'Importe restringido'
+            : record.value == null
             ? null
             : record.unit == 'MXN'
             ? money.format(record.value)
@@ -2110,7 +2127,12 @@ class _RecentRecordCard extends StatelessWidget {
       elevation: 1,
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        onTap: editable ? onEdit : null,
+        onTap:
+            canEdit
+                ? onEdit
+                : record.attachmentEntityPath != null
+                ? onAttachments
+                : null,
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
@@ -2175,12 +2197,20 @@ class _RecentRecordCard extends StatelessWidget {
                       ),
                     ),
                   ),
-                  if (editable) ...[
+                  if (record.attachmentEntityPath != null)
+                    IconButton(
+                      tooltip: 'Ver archivos adjuntos',
+                      onPressed: onAttachments,
+                      icon: const Icon(Icons.attach_file_rounded),
+                    ),
+                  if (canEdit) ...[
                     IconButton.filledTonal(
                       tooltip: 'Editar registro',
                       onPressed: onEdit,
                       icon: const AppGlyph(AppGlyphType.edit, size: 19),
                     ),
+                  ],
+                  if (canDelete)
                     IconButton(
                       tooltip: 'Eliminar registro',
                       color: AppColors.red,
@@ -2191,7 +2221,6 @@ class _RecentRecordCard extends StatelessWidget {
                         color: AppColors.red,
                       ),
                     ),
-                  ],
                 ],
               ),
             ],
@@ -2270,6 +2299,31 @@ Future<void> _deleteRecentRecord(
         ),
   );
   if (confirmed != true || !context.mounted) return;
+  if (store.isAuthenticated) {
+    final path = record.resourcePath;
+    final id = record.id;
+    if (path == null || id == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No se pudo identificar el registro.')),
+      );
+      return;
+    }
+    try {
+      await store.deleteResource('$path/$id');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${record.kind} eliminado correctamente.')),
+        );
+      }
+    } on ApiException catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    }
+    return;
+  }
   final index = store.deleteRecord(record);
   if (index < 0) return;
   ScaffoldMessenger.of(context)
@@ -2290,6 +2344,10 @@ Future<void> _editRecentRecord(
   AppStore store,
   ActivityRecord record,
 ) async {
+  if (store.isAuthenticated) {
+    await showRecordEditSheet(context, store, record);
+    return;
+  }
   final title = TextEditingController(text: record.title);
   final detail = TextEditingController(text: record.detail);
   final value = TextEditingController(
@@ -3294,25 +3352,30 @@ class SaleDetailScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 20),
+          const SectionTitle('Archivos de la venta'),
+          Card(
+            child: ListTile(
+              leading: const IconBox(Icons.attach_file_rounded),
+              title: const Text('Comprobantes y documentos'),
+              subtitle: const Text('Consultar, descargar o agregar archivos'),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap:
+                  () => showAttachmentsSheet(
+                    context,
+                    store,
+                    path: 'ventas/${sale.id}/adjuntos',
+                    title: 'Venta ${sale.id}',
+                  ),
+            ),
+          ),
+          const SizedBox(height: 20),
           const SectionTitle('Cobros'),
           const SizedBox(height: 12),
-          if (sale.paid > 0)
-            Card(
-              child: ListTile(
-                leading: const IconBox(Icons.payments_rounded),
-                title: Text('Total cobrado: ${money.format(sale.paid)}'),
-                subtitle: Text(
-                  'Saldo pendiente: ${money.format(sale.total - sale.paid)}',
-                ),
-              ),
-            )
-          else
-            const InfoBanner(
-              title: 'Sin cobros',
-              text:
-                  'Registra un cobro para actualizar el saldo y el estado automáticamente.',
-              tone: AppColors.amber,
-            ),
+          _SalePaymentHistory(
+            key: ValueKey('${sale.id}-${sale.paid}'),
+            store: store,
+            saleId: sale.id,
+          ),
           const SizedBox(height: 20),
           FilledButton.icon(
             onPressed:
@@ -3383,12 +3446,191 @@ class SaleDetailScreen extends StatelessWidget {
   }
 }
 
+class _SalePaymentHistory extends StatefulWidget {
+  const _SalePaymentHistory({
+    required this.store,
+    required this.saleId,
+    super.key,
+  });
+
+  final AppStore store;
+  final String saleId;
+
+  @override
+  State<_SalePaymentHistory> createState() => _SalePaymentHistoryState();
+}
+
+class _SalePaymentHistoryState extends State<_SalePaymentHistory> {
+  late Future<List<Map<String, dynamic>>> _payments;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  void _load() {
+    _payments = widget.store.listResource(
+      'ventas/${widget.saleId}/cobros',
+      queryParameters: const {'page': 1, 'limit': 100},
+    );
+  }
+
+  @override
+  Widget build(
+    BuildContext context,
+  ) => FutureBuilder<List<Map<String, dynamic>>>(
+    future: _payments,
+    builder: (context, snapshot) {
+      if (snapshot.connectionState != ConnectionState.done) {
+        return const Center(child: CircularProgressIndicator());
+      }
+      if (snapshot.hasError) {
+        final error = snapshot.error;
+        final message =
+            error is ApiException
+                ? error.message
+                : 'No se pudieron cargar los cobros.';
+        return InfoBanner(
+          title: 'Historial no disponible',
+          text: message,
+          tone: AppColors.red,
+          icon: Icons.cloud_off_rounded,
+        );
+      }
+      final payments = snapshot.data ?? const [];
+      if (payments.isEmpty) {
+        return const InfoBanner(
+          title: 'Sin cobros',
+          text:
+              'Registra un cobro para actualizar el saldo y el estado automáticamente.',
+          tone: AppColors.amber,
+        );
+      }
+      return Column(
+        children: [
+          for (final payment in payments)
+            Card(
+              child: ListTile(
+                leading: const IconBox(Icons.payments_rounded),
+                title: Text(money.format(_parseAmount(payment['monto']))),
+                subtitle: Text(
+                  [
+                    _paymentDate(payment['fecha']),
+                    _paymentMethod(payment['metodo']),
+                    if (payment['referencia'] is String &&
+                        (payment['referencia'] as String).isNotEmpty)
+                      payment['referencia'] as String,
+                  ].join(' · '),
+                ),
+                trailing: PopupMenuButton<String>(
+                  tooltip: 'Acciones del cobro',
+                  onSelected: (action) {
+                    final id = payment['id']?.toString();
+                    if (id == null || id.isEmpty) return;
+                    switch (action) {
+                      case 'attachments':
+                        showAttachmentsSheet(
+                          context,
+                          widget.store,
+                          path: 'cobros/$id/adjuntos',
+                          title: 'Cobro $id',
+                        );
+                        break;
+                      case 'annul':
+                        _confirmAnnulPayment(id);
+                        break;
+                    }
+                  },
+                  itemBuilder:
+                      (_) => const [
+                        PopupMenuItem(
+                          value: 'attachments',
+                          child: Text('Archivos adjuntos'),
+                        ),
+                        PopupMenuItem(
+                          value: 'annul',
+                          child: Text('Anular cobro'),
+                        ),
+                      ],
+                ),
+              ),
+            ),
+        ],
+      );
+    },
+  );
+
+  double _parseAmount(Object? value) =>
+      double.tryParse(value?.toString() ?? '') ?? 0;
+
+  String _paymentDate(Object? value) {
+    final date = DateTime.tryParse(value?.toString() ?? '');
+    return date == null
+        ? 'Fecha desconocida'
+        : DateFormat('dd MMM yyyy', 'es_MX').format(date);
+  }
+
+  String _paymentMethod(Object? value) => switch (value) {
+    'EFECTIVO' => 'Efectivo',
+    'TRANSFERENCIA' => 'Transferencia',
+    'CHEQUE' => 'Cheque',
+    'TARJETA' => 'Tarjeta',
+    'OTRO' => 'Otro',
+    _ => 'Método no especificado',
+  };
+
+  Future<void> _confirmAnnulPayment(String id) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder:
+          (dialogContext) => AlertDialog(
+            title: const Text('¿Anular cobro?'),
+            content: const Text(
+              'El cobro se conservará en la auditoría y el saldo de la venta se recalculará.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Volver'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Anular cobro'),
+              ),
+            ],
+          ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await widget.store.annulPayment(id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            widget.store.dataError == null
+                ? 'Cobro anulado correctamente.'
+                : 'Se anuló, pero no se pudo actualizar la información: ${widget.store.dataError}',
+          ),
+        ),
+      );
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    }
+  }
+}
+
 class RecordsScreen extends StatelessWidget {
   const RecordsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final records = context.watch<AppStore>().records;
+    final store = context.watch<AppStore>();
+    final records = store.records;
     return AppShell(
       title: 'Mi bitácora',
       current: 'records',
@@ -3413,10 +3655,66 @@ class RecordsScreen extends StatelessWidget {
                           ? '${record.detail.split('·').first} · Importe restringido'
                           : record.detail,
                     ),
-                    trailing: Text(
-                      DateFormat('dd MMM', 'es_MX').format(record.date),
-                      style: Theme.of(context).textTheme.bodySmall,
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          DateFormat('dd MMM', 'es_MX').format(record.date),
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        if (store.canEditRecord(record) ||
+                            store.canDeleteRecord(record) ||
+                            record.attachmentEntityPath != null)
+                          PopupMenuButton<String>(
+                            tooltip: 'Acciones del registro',
+                            onSelected: (action) {
+                              switch (action) {
+                                case 'edit':
+                                  _editRecentRecord(context, store, record);
+                                  break;
+                                case 'delete':
+                                  _deleteRecentRecord(context, store, record);
+                                  break;
+                                case 'attachments':
+                                  showRecordAttachmentsSheet(
+                                    context,
+                                    store,
+                                    record,
+                                  );
+                                  break;
+                              }
+                            },
+                            itemBuilder:
+                                (_) => [
+                                  if (record.attachmentEntityPath != null)
+                                    const PopupMenuItem(
+                                      value: 'attachments',
+                                      child: Text('Archivos adjuntos'),
+                                    ),
+                                  if (store.canEditRecord(record))
+                                    const PopupMenuItem(
+                                      value: 'edit',
+                                      child: Text('Editar'),
+                                    ),
+                                  if (store.canDeleteRecord(record))
+                                    const PopupMenuItem(
+                                      value: 'delete',
+                                      child: Text('Eliminar'),
+                                    ),
+                                ],
+                          ),
+                      ],
                     ),
+                    onTap:
+                        record.attachmentEntityPath != null
+                            ? () => showRecordAttachmentsSheet(
+                              context,
+                              store,
+                              record,
+                            )
+                            : store.canEditRecord(record)
+                            ? () => _editRecentRecord(context, store, record)
+                            : null,
                   ),
               ],
             ),
@@ -5540,6 +5838,7 @@ class _HelpModule extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final role = context.watch<AppStore>().role;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -5555,19 +5854,34 @@ class _HelpModule extends StatelessWidget {
         Card(
           child: Column(
             children: [
-              for (final question in const [
-                '¿Cómo se calcula la ganancia?',
-                '¿Por qué la merma en campo no resta kg?',
-                '¿Cómo registro un cobro?',
+              for (final item in const [
+                (
+                  '¿Cómo se calcula la rentabilidad?',
+                  'El reporte compara los ingresos de venta con los costos registrados en el ciclo. Al guardar nuevos movimientos, sincroniza la pantalla o vuelve a abrir el reporte para ver los indicadores actualizados.',
+                ),
+                (
+                  '¿Por qué la merma puede no descontar kilos?',
+                  'La merma se valida con la unidad de peso, su etapa y, cuando aplica, la cosecha de origen. Revisa que el registro esté ligado al ciclo y a la cosecha correctos; la API rechazará cambios que rompan el balance de masa.',
+                ),
+                (
+                  '¿Cómo registro un cobro?',
+                  'Abre Ventas, selecciona una venta y toca “Registrar cobro”. Captura fecha, monto y método de pago. El saldo pendiente y el estado se recalculan automáticamente.',
+                ),
+                (
+                  '¿Puedo editar o eliminar una captura?',
+                  'Puedes editar movimientos propios desde la bitácora cuando el servidor lo permite (por autoría, ventana de edición y estado del ciclo). La baja de movimientos y la eliminación de archivos requieren permisos de administrador.',
+                ),
+                (
+                  '¿Cómo consulto archivos y exportaciones?',
+                  'Usa el menú de acciones del registro o de la venta para agregar, consultar y descargar archivos. En Reportes selecciona PDF, XLSX o CSV y toca la opción de exportación.',
+                ),
               ])
                 ExpansionTile(
-                  title: Text(question),
-                  children: const [
+                  title: Text(item.$1),
+                  children: [
                     Padding(
-                      padding: EdgeInsets.fromLTRB(16, 0, 16, 16),
-                      child: Text(
-                        'Consulta la regla de negocio y los pasos detallados dentro del manual de uso.',
-                      ),
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      child: Text(item.$2),
                     ),
                   ],
                 ),
@@ -5575,10 +5889,46 @@ class _HelpModule extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 16),
+        const SectionTitle('Accesos rápidos'),
+        Card(
+          child: Column(
+            children: [
+              if (role != UserRole.contador)
+                ListTile(
+                  leading: const Icon(Icons.add_circle_outline_rounded),
+                  title: const Text('Capturar movimiento'),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => context.push('/capture'),
+                ),
+              if (role != UserRole.contador)
+                ListTile(
+                  leading: const Icon(Icons.menu_book_outlined),
+                  title: const Text('Abrir bitácora'),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => context.push('/records'),
+                ),
+              if (role != UserRole.capturista)
+                ListTile(
+                  leading: const Icon(Icons.point_of_sale_outlined),
+                  title: const Text('Consultar ventas'),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => context.push('/sales'),
+                ),
+              if (role != UserRole.capturista)
+                ListTile(
+                  leading: const Icon(Icons.assessment_outlined),
+                  title: const Text('Abrir reportes'),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => context.push('/reports'),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
         const InfoBanner(
-          title: 'Ayuda por ahora dentro de la aplicación',
+          title: 'Contacto de soporte no configurado',
           text:
-              'El contacto directo y los manuales descargables no están configurados para esta cuenta.',
+              'Esta versión incluye guías y reportes descargables. Para habilitar contacto directo hace falta configurar un correo o canal oficial de soporte.',
           tone: AppColors.blue,
           icon: Icons.info_outline_rounded,
         ),

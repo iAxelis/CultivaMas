@@ -84,6 +84,10 @@ class ActivityRecord {
     this.value,
     this.unit,
     this.id,
+    this.resourcePath,
+    this.createdById,
+    this.sourceData = const {},
+    this.attachmentEntityPath,
   });
 
   String title;
@@ -94,6 +98,10 @@ class ActivityRecord {
   double? value;
   String? unit;
   final String? id;
+  final String? resourcePath;
+  final String? createdById;
+  final Map<String, dynamic> sourceData;
+  final String? attachmentEntityPath;
 }
 
 class Parcel {

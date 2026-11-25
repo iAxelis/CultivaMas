@@ -20,9 +20,18 @@ Si vas a integrar el frontend o probar la API localmente en Windows:
 npm ci
 
 # 2. Configurar variables de entorno
-# Edita el archivo .env y configura DATABASE_URL sin borrar las demás variables
+Copy-Item .env.example .env
+# Edita .env: configura DATABASE_URL y reemplaza ambos secretos JWT
 ```
-> *Configura tus credenciales de base de datos (`DATABASE_URL`) en `backend/.env`.*
+> Genera valores JWT distintos de al menos 64 caracteres. Por ejemplo, ejecuta
+> dos veces:
+>
+> ```powershell
+> node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+> ```
+>
+> `backend/.env.example` usa almacenamiento local y correo simulado para
+> desarrollo. Configura credenciales propias si necesitas usar R2 o Brevo.
 
 ### 3. Base de Datos y Semillas
 ```powershell
