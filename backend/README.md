@@ -6,7 +6,7 @@ Desarrollado con **NestJS 11**, **Prisma 7** y **MySQL 8.0+ / MariaDB 11+**, sig
 
 ---
 
-## 🚀 Inicio Rápido para Desarrolladores
+##  Inicio Rápido para Desarrolladores
 
 Si vas a integrar el frontend o probar la API localmente en Windows:
 
