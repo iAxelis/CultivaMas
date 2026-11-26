@@ -41,7 +41,7 @@ void main() {
     'envía el registro con los campos requeridos y datos opcionales vacíos',
     (tester) async {
       Map<String, dynamic>? sentBody;
-      final dio = Dio(BaseOptions(baseUrl: 'https://cultiva.test/api/v1/'));
+      final dio = Dio();
       dio.interceptors.add(
         InterceptorsWrapper(
           onRequest: (options, handler) {
@@ -54,7 +54,7 @@ void main() {
       );
       final apiClient = ApiClient(
         dio: dio,
-        refreshDio: Dio(BaseOptions(baseUrl: 'https://cultiva.test/api/v1/')),
+        refreshDio: Dio(),
         tokenStorage: _MemoryTokenStorage(),
       );
 
