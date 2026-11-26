@@ -73,7 +73,6 @@ instalado en una ruta con espacios y no es necesario para ejecutar en Chrome.
 
 ```bash
 flutter analyze
-flutter test
 ```
 
 Al iniciar sesión, la app carga ciclos, actividades, gastos, cosechas, mermas,

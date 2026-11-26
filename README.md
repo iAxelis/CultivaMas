@@ -225,6 +225,6 @@ docker compose --profile e2e down
 
 Desde `backend`: `npm run lint:check`, `npm run build`, `npm test`,
 `npm run db:verify` y `npm run contrato:verificar`. Desde `frontend`:
-`flutter analyze`, `flutter test` y `flutter build web --release`. Android
+`flutter analyze` y `flutter build web --release`. Android
 requiere las herramientas de línea de comandos y licencias del SDK; iOS requiere
 macOS y Xcode.
