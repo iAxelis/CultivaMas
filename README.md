@@ -75,7 +75,8 @@ flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:3000/api/v1
 Para compilar Flutter Web:
 
 ```powershell
-flutter build web --release --dart-define=API_BASE_URL=https://api.ejemplo.com/api/v1
+$env:API_BASE_URL = Read-Host "URL pública real del backend"
+flutter build web --release "--dart-define=API_BASE_URL=$env:API_BASE_URL"
 ```
 
 `API_BASE_URL` queda fijada al compilar. Genera un artefacto por entorno y usa
@@ -93,8 +94,9 @@ acepta las licencias del SDK:
 ```powershell
 cd frontend
 flutter doctor
-flutter build apk --release --dart-define=API_BASE_URL=https://api.ejemplo.com/api/v1
-flutter build appbundle --release --dart-define=API_BASE_URL=https://api.ejemplo.com/api/v1
+$env:API_BASE_URL = Read-Host "URL pública real del backend"
+flutter build apk --release "--dart-define=API_BASE_URL=$env:API_BASE_URL"
+flutter build appbundle --release "--dart-define=API_BASE_URL=$env:API_BASE_URL"
 ```
 
 La firma de producción debe configurarse fuera del repositorio y no se deben

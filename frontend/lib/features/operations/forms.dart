@@ -975,10 +975,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
       FieldBlock(
         label: 'Número de comprobante',
         help: 'Opcional, máximo 60 caracteres.',
-        child: TextFormField(
-          controller: referenceController,
-          decoration: const InputDecoration(hintText: 'F-204'),
-        ),
+        child: TextFormField(controller: referenceController),
       ),
     ];
   }
@@ -1293,10 +1290,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         FieldBlock(
           label: 'Número de factura',
           help: 'Opcional.',
-          child: TextFormField(
-            controller: invoiceController,
-            decoration: const InputDecoration(hintText: 'FAC-1043'),
-          ),
+          child: TextFormField(controller: invoiceController),
         ),
         _dateField(
           controller: dueDateController,
@@ -1550,7 +1544,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
       const SizedBox(height: 20),
       FieldBlock(
         label: 'Referencia',
-        help: 'Opcional, por ejemplo autorización o SPEI.',
+        help: 'Opcional. Captura la referencia del movimiento.',
         child: TextFormField(
           controller: referenceController,
           decoration: const InputDecoration(hintText: 'Referencia'),
@@ -1619,11 +1613,8 @@ class _DataFormScreenState extends State<DataFormScreen> {
       const SizedBox(height: 20),
       FieldBlock(
         label: 'Nombre del ciclo',
-        help: 'Opcional, por ejemplo Primavera 2027.',
-        child: TextFormField(
-          controller: cycleNameController,
-          decoration: const InputDecoration(hintText: 'Primavera 2027'),
-        ),
+        help: 'Opcional.',
+        child: TextFormField(controller: cycleNameController),
       ),
       const SizedBox(height: 20),
       _dateField(

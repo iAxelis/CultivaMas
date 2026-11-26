@@ -339,11 +339,14 @@ async function main() {
   // 9. Cultivo y Variedad iniciales
   const cultivo = await prisma.cultivo.upsert({
     where: { nombre: 'Tomate' },
-    update: { activo: true },
+    update: {
+      activo: true,
+      descripcion: 'Cultivo hortícola de fruto, de ciclo anual.',
+    },
     create: {
       nombre: 'Tomate',
       nombreCientifico: 'Solanum lycopersicum',
-      descripcion: 'Cultivo piloto de referencia',
+      descripcion: 'Cultivo hortícola de fruto, de ciclo anual.',
       activo: true,
     },
   });
@@ -365,7 +368,7 @@ async function main() {
       activo: true,
     },
   });
-  console.log('✓ Cultivo y variedad piloto sembrados');
+  console.log('✓ Catálogo inicial de cultivos sembrado');
 
   console.log('¡Sembrado completado con éxito!');
 }

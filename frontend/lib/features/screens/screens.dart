@@ -495,7 +495,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ] else ...[
                           const Text(
-                            'Si el correo está registrado, recibirás instrucciones. Revisa spam. En desarrollo con MAIL_TRANSPORT=log, busca el enlace en la consola del backend. Puedes pegar aquí el token o el enlace completo.',
+                            'Si el correo está registrado, recibirás instrucciones. Revisa tu correo y la carpeta de spam.',
                           ),
                           const SizedBox(height: 16),
                           TextField(

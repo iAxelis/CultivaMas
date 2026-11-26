@@ -50,7 +50,7 @@ Para correr el backend en tu entorno local sin necesidad de Docker:
    ```powershell
    npx prisma db seed
    ```
-   *Esto sembrará automáticamente los planes de suscripción, los 20 permisos, los 3 roles estándar, unidades de medida, motivos de merma, 11 categorías de gastos con sus subcategorías y el cultivo piloto de Tomate.*
+   *Esto carga los catálogos base del sistema: planes, permisos, roles, unidades de medida, motivos de merma, categorías de gasto y cultivos/variedades disponibles para registrar ciclos.*
 
 5. **Iniciar Servidor de Desarrollo:**
    ```powershell

@@ -27,12 +27,14 @@ flutter run -d chrome
 ## Conexión con el backend
 
 El cliente centraliza la URL de la API mediante el `dart-define` `API_BASE_URL`.
-El valor predeterminado de localhost es únicamente para desarrollo en la misma
-máquina; especifica la URL apropiada para cada entorno:
+En desarrollo local, especifica el endpoint local. Antes de compilar una
+versión de producción, captura la URL HTTPS real del backend; no compiles con
+localhost:
 
 ```powershell
 flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:3000/api/v1
-flutter build web --release --dart-define=API_BASE_URL=https://api.ejemplo.com/api/v1
+$env:API_BASE_URL = Read-Host "URL pública real del backend"
+flutter build web --release "--dart-define=API_BASE_URL=$env:API_BASE_URL"
 ```
 
 Para un emulador Android, usa la dirección del host accesible desde el emulador

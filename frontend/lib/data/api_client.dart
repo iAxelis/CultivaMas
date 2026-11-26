@@ -110,6 +110,36 @@ class ApiClient {
     'API_BASE_URL',
     defaultValue: 'http://localhost:3000/api/v1',
   );
+  static bool get hasProductionBaseUrl {
+    final uri = Uri.tryParse(_configuredBaseUrl.trim());
+    if (uri == null ||
+        uri.scheme != 'https' ||
+        uri.host.isEmpty ||
+        uri.hasQuery ||
+        uri.hasFragment) {
+      return false;
+    }
+    final host = uri.host.toLowerCase().replaceFirst(RegExp(r'\.$'), '');
+    final reservedHost =
+        host == 'localhost' ||
+        host.endsWith('.localhost') ||
+        host == 'test' ||
+        host.endsWith('.test') ||
+        host == 'example' ||
+        host.endsWith('.example') ||
+        host.endsWith('.invalid') ||
+        host == 'example.com' ||
+        host.endsWith('.example.com') ||
+        host == 'ejemplo.com' ||
+        host.endsWith('.ejemplo.com');
+    final pathSegments =
+        uri.pathSegments.where((segment) => segment.isNotEmpty).toList();
+    return pathSegments.length >= 2 &&
+        pathSegments[pathSegments.length - 2] == 'api' &&
+        pathSegments.last == 'v1' &&
+        !reservedHost;
+  }
+
   static final _apiBaseUrl =
       _configuredBaseUrl.endsWith('/')
           ? _configuredBaseUrl
