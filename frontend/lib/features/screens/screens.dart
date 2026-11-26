@@ -5,7 +5,6 @@ import 'package:dio/dio.dart';
 import 'package:file_saver/file_saver.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -168,19 +167,20 @@ class _SplashScreenState extends State<SplashScreen>
               FadeTransition(
                 opacity: logoOpacity,
                 child: ScaleTransition(
-                  scale: Tween<double>(begin: .82, end: 1).animate(
+                  scale: Tween<double>(begin: .94, end: 1).animate(
                     CurvedAnimation(
                       parent: controller,
-                      curve: Curves.easeOutBack,
+                      curve: Curves.easeOutCubic,
                     ),
                   ),
                   child: Container(
                     width: 112,
                     height: 112,
                     padding: const EdgeInsets.all(12),
-                    child: SvgPicture.asset(
-                      'assets/brand-logo.svg',
-                      semanticsLabel: 'Logo de Cultiva+',
+                    child: Image.asset(
+                      'assets/CultivaLogo.png',
+                      semanticLabel: 'Logo de Cultiva+',
+                      fit: BoxFit.contain,
                     ),
                   ),
                 ),
@@ -188,11 +188,8 @@ class _SplashScreenState extends State<SplashScreen>
               const SizedBox(height: 20),
               FadeTransition(
                 opacity: titleOpacity,
-                child: SlideTransition(
-                  position: Tween<Offset>(
-                    begin: const Offset(0, .3),
-                    end: Offset.zero,
-                  ).animate(
+                child: ScaleTransition(
+                  scale: Tween<double>(begin: .96, end: 1).animate(
                     CurvedAnimation(
                       parent: controller,
                       curve: const Interval(
@@ -216,11 +213,8 @@ class _SplashScreenState extends State<SplashScreen>
               const SizedBox(height: 8),
               FadeTransition(
                 opacity: taglineOpacity,
-                child: SlideTransition(
-                  position: Tween<Offset>(
-                    begin: const Offset(0, .25),
-                    end: Offset.zero,
-                  ).animate(
+                child: ScaleTransition(
+                  scale: Tween<double>(begin: .96, end: 1).animate(
                     CurvedAnimation(
                       parent: controller,
                       curve: const Interval(
@@ -703,7 +697,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 4),
                 Row(
                   children: [
-                    const Expanded(child: Text('Acceso al sistema')),
                     const Spacer(),
                     Flexible(
                       child: TextButton(

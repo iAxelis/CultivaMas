@@ -146,9 +146,49 @@ docker compose down
 ```
 
 No uses `docker compose down -v` salvo que quieras eliminar deliberadamente
-esos volúmenes y sus datos. Para producción, entrega secretos mediante el
-gestor de secretos de la plataforma, configura CORS con los orígenes HTTPS
-autorizados y publica el backend detrás de un proxy HTTPS.
+esos volúmenes y sus datos. ### Producción en un servidor con Docker Compose
+
+El archivo de desarrollo deja el backend accesible solo desde el host. Para
+publicarlo con HTTPS en un servidor propio, se agrega el proxy Caddy:
+
+1. Configura un registro DNS `A` para `API_DOMAIN` apuntando a la IP pública del
+   servidor y permite tráfico entrante TCP 80/443 (y UDP 443 si se desea HTTP/3).
+   En `.env`, cambia `API_DOMAIN` por el dominio real y define `DB_PASSWORD` y
+   `DB_ROOT_PASSWORD` fuertes y URL-safe.
+2. Mantén `backend/.env` fuera de Git y configura valores de producción:
+   `JWT_SECRET` y `JWT_REFRESH_SECRET` distintos (mínimo 64 caracteres),
+   `STORAGE_SIGNED_URL_SECRET` (mínimo 32), `MAIL_TRANSPORT=brevo`,
+   `BREVO_API_KEY`, `MAIL_FROM_EMAIL`, `MAIL_FROM_NAME` y
+   `PASSWORD_RESET_URL=https://<dominio-web>/restablecer-contrasena`.
+   Compose fija `NODE_ENV=production`, desactiva la recuperación de clave
+   pública MySQL y activa el proxy confiable y el rate limiting. No uses valores
+   de ejemplo ni copies secretos a este repositorio.
+3. Si también publicarás Flutter Web, define `CORS_ORIGINS` como su origen HTTPS
+   exacto (sin ruta); para la app móvil puede quedar vacío. El almacenamiento
+   local de adjuntos persiste en el volumen Docker; usa R2 si necesitas
+   almacenamiento externo o varias instancias.
+4. Aplica las migraciones antes de iniciar la API. Ejecuta el seed solo en una
+   base nueva:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.production.yml up -d db
+docker compose -f docker-compose.yml -f docker-compose.production.yml --profile tools run --rm migrate
+docker compose -f docker-compose.yml -f docker-compose.production.yml --profile tools run --rm migrate npx prisma db seed
+docker compose -f docker-compose.yml -f docker-compose.production.yml up --build -d backend proxy
+docker compose -f docker-compose.yml -f docker-compose.production.yml ps
+```
+
+La base de datos no se publica al host y el backend solo queda expuesto en
+localhost; Caddy es el único servicio público y obtiene/renueva TLS
+automáticamente. Verifica `https://<API_DOMAIN>/api/v1/health`. No uses
+`docker compose down -v`: eliminaría los datos persistidos.
+
+El APK actual todavía apunta al emulador (`10.0.2.2`) y usa la firma de
+depuración. Después de elegir el dominio real, recompílalo con
+`--dart-define=API_BASE_URL=https://<API_DOMAIN>/api/v1` y configura una clave
+de firma de producción fuera del repositorio antes de distribuirlo. Para
+desplegar en un servidor administrado o con una base externa, adapta esta
+configuración al proveedor y a su modelo de red.
 
 ## Pruebas e2e con base aislada
 

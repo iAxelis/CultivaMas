@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../core/theme.dart';
 
@@ -125,9 +124,9 @@ class AccessBrand extends StatelessWidget {
             child: Center(
               child: Transform.translate(
                 offset: Offset(logoOffsetX, 0),
-                child: SvgPicture.asset(
-                  'assets/brand-logo.svg',
-                  semanticsLabel: 'Logo de la aplicación',
+                child: Image.asset(
+                  'assets/CultivaLogo.png',
+                  semanticLabel: 'Logo de la aplicación',
                   fit: BoxFit.contain,
                   alignment: Alignment.center,
                 ),

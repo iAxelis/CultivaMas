@@ -1,7 +1,8 @@
-import 'package:cultiva_plus/data/store.dart';
+import 'package:cultiva_plus/core/theme.dart';
 import 'package:cultiva_plus/data/api_client.dart';
 import 'package:cultiva_plus/data/auth_service.dart';
 import 'package:cultiva_plus/data/models.dart';
+import 'package:cultiva_plus/data/store.dart';
 import 'package:cultiva_plus/features/catalog/catalog_forms.dart';
 import 'package:cultiva_plus/features/operations/forms.dart';
 import 'package:cultiva_plus/features/screens/screens.dart';
@@ -101,6 +102,29 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('mantiene el mismo fundido y escala al navegar entre pantallas', (
+    tester,
+  ) async {
+    await _openLogin(tester);
+    GoRouter.of(
+      tester.element(find.text('Iniciar sesión')),
+    ).push('/company/new');
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 120));
+
+    expect(find.byType(FadeTransition), findsWidgets);
+    expect(find.byType(ScaleTransition), findsWidgets);
+    expect(find.byType(SlideTransition), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  test('usa la misma transición de página en todas las plataformas', () {
+    final transitions =
+        buildTheme().pageTransitionsTheme.builders.values.toSet();
+
+    expect(transitions, hasLength(1));
+  });
+
   testWidgets('muestra el splash y después va directamente al login', (
     tester,
   ) async {
@@ -111,6 +135,7 @@ void main() {
 
     await tester.pumpWidget(_app());
     expect(find.byType(SplashScreen), findsOneWidget);
+    expect(find.byType(SlideTransition), findsNothing);
     await tester.pump(const Duration(milliseconds: 1100));
     await tester.pumpAndSettle();
 

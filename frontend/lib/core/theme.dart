@@ -1,6 +1,32 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+class _CultivaPageTransitionsBuilder extends PageTransitionsBuilder {
+  const _CultivaPageTransitionsBuilder();
+
+  @override
+  Widget buildTransitions<T>(
+    Route<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    final progress = CurvedAnimation(
+      parent: animation,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInCubic,
+    );
+    return FadeTransition(
+      opacity: progress,
+      child: ScaleTransition(
+        scale: Tween<double>(begin: .96, end: 1).animate(progress),
+        child: child,
+      ),
+    );
+  }
+}
+
 abstract final class AppColors {
   static const green = Color(0xFF2B9964);
   static const navigationGreen = Color(0xFF2B9964);
@@ -106,6 +132,12 @@ ThemeData buildTheme() {
     colorScheme: scheme,
     scaffoldBackgroundColor: AppColors.section,
     textTheme: textTheme,
+    pageTransitionsTheme: PageTransitionsTheme(
+      builders: {
+        for (final platform in TargetPlatform.values)
+          platform: const _CultivaPageTransitionsBuilder(),
+      },
+    ),
     appBarTheme: const AppBarTheme(
       backgroundColor: Colors.white,
       foregroundColor: AppColors.ink,
