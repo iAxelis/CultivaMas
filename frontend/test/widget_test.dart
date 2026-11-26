@@ -180,6 +180,28 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('solicita confirmación antes de cerrar sesión', (tester) async {
+    await _openLogin(tester);
+    await _signIn(tester, 'ramon@lospinos.mx', 'Admin123!');
+
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NavigationBar),
+        matching: find.text('Más'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Cerrar sesión'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('¿Quieres salir de tu cuenta?'), findsOneWidget);
+    await tester.tap(find.text('Cancelar'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Cerrar sesión'), findsOneWidget);
+    expect(find.text('¿Quieres salir de tu cuenta?'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('muestra el resumen financiero vacío y permite cerrar sesión', (
     tester,
   ) async {
@@ -256,6 +278,66 @@ void main() {
     await tester.tap(find.text('Ramón Ortega').last);
     await tester.pumpAndSettle();
     expect(find.text('Ramón Ortega'), findsOneWidget);
+  });
+
+  testWidgets('gastos y ventas no desbordan en pantallas estrechas', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final store =
+        AppStore(loadRemoteDataOnSignIn: false)
+          ..cycles.add(
+            FarmCycle(
+              id: '1',
+              parcelId: '1',
+              parcel: 'Parcela 1',
+              crop: 'Cultivo',
+              varietyId: '1',
+              status: CycleStatus.activo,
+              area: 1,
+              cost: 0,
+              income: 0,
+              harvestedKg: 500,
+              goalKg: 1000,
+            ),
+          )
+          ..catalogs['expenseCategories'] = [
+            {'id': 1, 'nombre': 'Insumos'},
+          ]
+          ..clients.add(
+            BusinessPartner(
+              id: '1',
+              name: 'Cliente con nombre largo',
+              kind: 'OTRO',
+              detail: '',
+            ),
+          );
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: store,
+        child: const MaterialApp(
+          home: DataFormScreen(type: 'expense', cycleId: '1'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: store,
+        child: const MaterialApp(
+          home: DataFormScreen(type: 'sale', cycleId: '1'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('explica el requisito de parcela antes de crear un ciclo', (
@@ -421,6 +503,8 @@ Future<void> _signOut(WidgetTester tester) async {
   );
   await tester.pumpAndSettle();
   await tester.tap(find.byTooltip('Cerrar sesión'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Cerrar sesión').last);
   await tester.pumpAndSettle();
 }
 

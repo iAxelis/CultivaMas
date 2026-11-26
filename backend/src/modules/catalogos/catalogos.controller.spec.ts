@@ -15,6 +15,7 @@ describe('CatalogosController', () => {
     obtenerMotivosMerma: jest.fn(),
     obtenerCategoriasGasto: jest.fn(),
     crearCategoriaGasto: jest.fn(),
+    eliminarCategoriaGasto: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -120,5 +121,13 @@ describe('CatalogosController', () => {
       dto,
     );
     expect(res.id).toBe(5);
+  });
+
+  it('debe delegar eliminarCategoriaGasto pasando el tenant y el identificador', async () => {
+    await controller.eliminarCategoriaGasto(10, 5);
+    expect(mockCatalogosService.eliminarCategoriaGasto).toHaveBeenCalledWith(
+      10,
+      5,
+    );
   });
 });

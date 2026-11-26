@@ -4,12 +4,31 @@ import 'package:intl/intl.dart';
 import '../data/models.dart';
 import 'theme.dart';
 
-final money = NumberFormat.currency(locale: 'es_MX', symbol: '\$', decimalDigits: 0);
+final money = NumberFormat.currency(
+  locale: 'es_MX',
+  symbol: '\$',
+  decimalDigits: 0,
+);
 final moneyExact = NumberFormat.currency(locale: 'es_MX', symbol: '\$');
 final shortDate = DateFormat('dd MMM yyyy', 'es_MX');
 final quantity = NumberFormat('#,##0.##', 'es_MX');
 
-enum AppGlyphType { dashboard, sprout, add, more, records, sales, chart, edit, delete }
+String formatDateInput(DateTime value) =>
+    '${value.day.toString().padLeft(2, '0')}/'
+    '${value.month.toString().padLeft(2, '0')}/'
+    '${value.year.toString().padLeft(4, '0')}';
+
+enum AppGlyphType {
+  dashboard,
+  sprout,
+  add,
+  more,
+  records,
+  sales,
+  chart,
+  edit,
+  delete,
+}
 
 class AppGlyph extends StatelessWidget {
   const AppGlyph(this.type, {this.size = 24, this.color, super.key});
@@ -31,11 +50,7 @@ class AppGlyph extends StatelessWidget {
       AppGlyphType.edit => Icons.edit_outlined,
       AppGlyphType.delete => Icons.delete_outline_rounded,
     };
-    return Icon(
-      icon,
-      size: size,
-      color: color,
-    );
+    return Icon(icon, size: size, color: color);
   }
 }
 
@@ -49,7 +64,9 @@ class SectionTitle extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Expanded(child: Text(title, style: Theme.of(context).textTheme.titleLarge)),
+        Expanded(
+          child: Text(title, style: Theme.of(context).textTheme.titleLarge),
+        ),
         if (action != null) action!,
       ],
     );
@@ -93,7 +110,12 @@ class PlainLeadingIcon extends StatelessWidget {
 }
 
 class StatusPill extends StatelessWidget {
-  const StatusPill(this.label, this.color, {this.icon = Icons.circle, super.key});
+  const StatusPill(
+    this.label,
+    this.color, {
+    this.icon = Icons.circle,
+    super.key,
+  });
 
   final String label;
   final Color color;
@@ -114,7 +136,11 @@ class StatusPill extends StatelessWidget {
           const SizedBox(width: 5),
           Text(
             label,
-            style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w700),
+            style: TextStyle(
+              color: color,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ],
       ),
@@ -122,44 +148,49 @@ class StatusPill extends StatelessWidget {
   }
 }
 
-({String label, Color color, IconData icon}) cycleStatusStyle(CycleStatus status) {
+({String label, Color color, IconData icon}) cycleStatusStyle(
+  CycleStatus status,
+) {
   return switch (status) {
     CycleStatus.activo => (
-        label: 'Activo',
-        color: AppColors.green,
-        icon: Icons.play_circle_rounded
-      ),
+      label: 'Activo',
+      color: AppColors.green,
+      icon: Icons.play_circle_rounded,
+    ),
     CycleStatus.planificado => (
-        label: 'Planificado',
-        color: AppColors.tertiaryInk,
-        icon: Icons.schedule_rounded
-      ),
+      label: 'Planificado',
+      color: AppColors.tertiaryInk,
+      icon: Icons.schedule_rounded,
+    ),
     CycleStatus.suspendido => (
-        label: 'Suspendido',
-        color: AppColors.amber,
-        icon: Icons.pause_circle_rounded
-      ),
+      label: 'Suspendido',
+      color: AppColors.amber,
+      icon: Icons.pause_circle_rounded,
+    ),
     CycleStatus.finalizado => (
-        label: 'Finalizado',
-        color: AppColors.blue,
-        icon: Icons.check_circle_rounded
-      ),
+      label: 'Finalizado',
+      color: AppColors.blue,
+      icon: Icons.check_circle_rounded,
+    ),
     CycleStatus.cerrado => (
-        label: 'Cerrado',
-        color: AppColors.red,
-        icon: Icons.lock_rounded
-      ),
+      label: 'Cerrado',
+      color: AppColors.red,
+      icon: Icons.lock_rounded,
+    ),
     CycleStatus.cancelado => (
-        label: 'Cancelado',
-        color: AppColors.red,
-        icon: Icons.cancel_rounded
-      ),
+      label: 'Cancelado',
+      color: AppColors.red,
+      icon: Icons.cancel_rounded,
+    ),
   };
 }
 
 ({String label, Color color}) paymentStatusStyle(PaymentStatus status) {
   return switch (status) {
-    PaymentStatus.pendiente => (label: 'Pendiente', color: AppColors.tertiaryInk),
+    PaymentStatus.pendiente => (
+      label: 'Pendiente',
+      color: AppColors.tertiaryInk,
+    ),
     PaymentStatus.parcial => (label: 'Parcial', color: AppColors.amber),
     PaymentStatus.pagada => (label: 'Pagada', color: AppColors.green),
     PaymentStatus.vencida => (label: 'Vencida', color: AppColors.red),
@@ -192,14 +223,19 @@ class StatTile extends StatelessWidget {
           children: [
             IconBox(icon, color: color),
             const SizedBox(height: 16),
-            Text(label.toUpperCase(), style: Theme.of(context).textTheme.labelMedium),
+            Text(
+              label.toUpperCase(),
+              style: Theme.of(context).textTheme.labelMedium,
+            ),
             const SizedBox(height: 4),
             AnimatedSwitcher(
               duration: const Duration(milliseconds: 250),
               child: Text(
                 value,
                 key: ValueKey(value),
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontSize: 22),
+                style: Theme.of(
+                  context,
+                ).textTheme.headlineSmall?.copyWith(fontSize: 22),
               ),
             ),
             if (note != null) ...[
@@ -250,16 +286,16 @@ class HeroCard extends StatelessWidget {
               children: [
                 Text(
                   eyebrow.toUpperCase(),
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        color: Colors.white70,
-                      ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelMedium?.copyWith(color: Colors.white70),
                 ),
                 const SizedBox(height: 8),
                 Text(
                   value,
-                  style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                        color: Colors.white,
-                      ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.displaySmall?.copyWith(color: Colors.white),
                 ),
                 const SizedBox(height: 4),
                 Text(subtitle, style: const TextStyle(color: Colors.white70)),
@@ -306,7 +342,10 @@ class InfoBanner extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (title != null)
-                  Text(title!, style: TextStyle(color: tone, fontWeight: FontWeight.w700)),
+                  Text(
+                    title!,
+                    style: TextStyle(color: tone, fontWeight: FontWeight.w700),
+                  ),
                 if (title != null) const SizedBox(height: 3),
                 Text(text, style: Theme.of(context).textTheme.bodySmall),
               ],
@@ -335,7 +374,10 @@ class FieldBlock extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label.toUpperCase(), style: Theme.of(context).textTheme.labelMedium),
+        Text(
+          label.toUpperCase(),
+          style: Theme.of(context).textTheme.labelMedium,
+        ),
         const SizedBox(height: 8),
         child,
         const SizedBox(height: 6),
@@ -345,7 +387,65 @@ class FieldBlock extends StatelessWidget {
   }
 }
 
-class EmptyState extends StatelessWidget {
+class DatePickerField extends StatelessWidget {
+  const DatePickerField({
+    required this.controller,
+    required this.label,
+    super.key,
+  });
+
+  final TextEditingController controller;
+  final String label;
+
+  DateTime? get _currentDate {
+    final parts = controller.text.trim().split('/');
+    if (parts.length == 3) {
+      final day = int.tryParse(parts[0]);
+      final month = int.tryParse(parts[1]);
+      final year = int.tryParse(parts[2]);
+      if (day != null && month != null && year != null) {
+        final date = DateTime(year, month, day);
+        if (date.day == day && date.month == month && date.year == year) {
+          return date;
+        }
+      }
+    }
+    return DateTime.tryParse(controller.text.trim());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TextFormField(
+      controller: controller,
+      readOnly: true,
+      validator:
+          (value) =>
+              value == null || value.trim().isEmpty
+                  ? 'Selecciona $label.'
+                  : null,
+      onTap: () async {
+        final today = DateTime.now();
+        final current = _currentDate;
+        final selected = await showDatePicker(
+          context: context,
+          initialDate: current ?? today,
+          firstDate: DateTime(1900),
+          lastDate: DateTime(2200),
+        );
+        if (selected != null) {
+          controller.text = formatDateInput(selected);
+        }
+      },
+      decoration: const InputDecoration(
+        hintText: 'dd/mm/aaaa',
+        prefixIcon: Icon(Icons.calendar_today_outlined),
+        suffixIcon: Icon(Icons.arrow_drop_down_rounded),
+      ),
+    );
+  }
+}
+
+class EmptyState extends StatefulWidget {
   const EmptyState({
     required this.title,
     required this.message,
@@ -360,7 +460,25 @@ class EmptyState extends StatelessWidget {
   final VoidCallback onAction;
 
   @override
+  State<EmptyState> createState() => _EmptyStateState();
+}
+
+class _EmptyStateState extends State<EmptyState> {
+  bool _dismissed = false;
+
+  @override
+  void didUpdateWidget(covariant EmptyState oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.title != widget.title ||
+        oldWidget.message != widget.message ||
+        oldWidget.actionLabel != widget.actionLabel) {
+      _dismissed = false;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    if (_dismissed) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.all(32),
       child: Column(
@@ -371,14 +489,26 @@ class EmptyState extends StatelessWidget {
               color: AppColors.greenSurface,
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.eco_rounded, color: AppColors.green, size: 34),
+            child: const Icon(
+              Icons.eco_rounded,
+              color: AppColors.green,
+              size: 34,
+            ),
           ),
           const SizedBox(height: 16),
-          Text(title, style: Theme.of(context).textTheme.titleLarge),
+          Text(widget.title, style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 8),
-          Text(message, textAlign: TextAlign.center),
+          Text(widget.message, textAlign: TextAlign.center),
           const SizedBox(height: 20),
-          FilledButton(onPressed: onAction, child: Text(actionLabel)),
+          FilledButton(
+            onPressed: () {
+              widget.onAction();
+              if (widget.actionLabel == 'Entendido') {
+                setState(() => _dismissed = true);
+              }
+            },
+            child: Text(widget.actionLabel),
+          ),
         ],
       ),
     );

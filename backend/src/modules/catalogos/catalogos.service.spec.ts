@@ -35,6 +35,7 @@ describe('CatalogosService (RN-047, RN-048)', () => {
       findUnique: jest.fn(),
       findFirst: jest.fn(),
       create: jest.fn(),
+      delete: jest.fn(),
     },
     $transaction: jest.fn(),
   };
@@ -325,6 +326,92 @@ describe('CatalogosService (RN-047, RN-048)', () => {
         expect(err.code).toBe(CodigoError.CONFLICTO);
         expect(err.getStatus()).toBe(409);
       }
+    });
+
+    it('elimina una categoría personalizada sin dependencias y registra auditoría', async () => {
+      mockPrismaService.categoriaGasto.findUnique.mockResolvedValue({
+        id: 20,
+        empresaId: 5,
+        categoriaPadreId: null,
+        nombre: 'Servicios de Maquila',
+        activo: true,
+        hijas: [],
+        _count: { gastos: 0 },
+      });
+
+      await service.eliminarCategoriaGasto(5, 20);
+
+      expect(mockPrismaService.categoriaGasto.delete).toHaveBeenCalledWith({
+        where: { id: 20 },
+      });
+      expect(mockAuditService.registrar).toHaveBeenCalledWith(
+        expect.objectContaining({
+          empresaId: 5,
+          entidad: 'categoria_gasto',
+          entidadId: 20,
+          accion: AccionAuditoria.ELIMINAR,
+        }),
+        expect.anything(),
+      );
+    });
+
+    it('protege categorías del sistema y de otras empresas', async () => {
+      mockPrismaService.categoriaGasto.findUnique
+        .mockResolvedValueOnce({
+          id: 1,
+          empresaId: null,
+          activo: true,
+          hijas: [],
+          _count: { gastos: 0 },
+        })
+        .mockResolvedValueOnce({
+          id: 9,
+          empresaId: 88,
+          activo: true,
+          hijas: [],
+          _count: { gastos: 0 },
+        });
+      await expect(service.eliminarCategoriaGasto(5, 1)).rejects.toMatchObject({
+        code: CodigoError.RECURSO_NO_ENCONTRADO,
+      });
+      await expect(service.eliminarCategoriaGasto(5, 9)).rejects.toMatchObject({
+        code: CodigoError.RECURSO_NO_ENCONTRADO,
+      });
+      expect(mockPrismaService.categoriaGasto.delete).not.toHaveBeenCalled();
+    });
+
+    it('rechaza eliminar una categoría con gastos o subcategorías', async () => {
+      mockPrismaService.categoriaGasto.findUnique.mockResolvedValue({
+        id: 20,
+        empresaId: 5,
+        activo: true,
+        hijas: [],
+        _count: { gastos: 1 },
+      });
+
+      await expect(service.eliminarCategoriaGasto(5, 20)).rejects.toMatchObject(
+        {
+          code: CodigoError.CONFLICTO,
+        },
+      );
+      expect(mockPrismaService.categoriaGasto.delete).not.toHaveBeenCalled();
+    });
+
+    it('rechaza eliminar una categoría que contiene subcategorías', async () => {
+      mockPrismaService.categoriaGasto.findUnique.mockResolvedValue({
+        id: 20,
+        empresaId: 5,
+        activo: true,
+        hijas: [{ id: 21 }],
+        _count: { gastos: 0 },
+      });
+
+      await expect(service.eliminarCategoriaGasto(5, 20)).rejects.toMatchObject(
+        {
+          code: CodigoError.CONFLICTO,
+        },
+      );
+      expect(mockPrismaService.categoriaGasto.delete).not.toHaveBeenCalled();
     });
   });
 });

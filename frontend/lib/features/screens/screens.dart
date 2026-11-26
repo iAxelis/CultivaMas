@@ -10,6 +10,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/theme.dart';
+import '../../core/validation.dart';
 import '../../core/widgets.dart';
 import '../../data/api_client.dart';
 import '../../data/auth_service.dart';
@@ -59,6 +60,40 @@ Future<void> _downloadReport(
         ),
       );
     }
+  }
+}
+
+Future<void> _confirmSignOut(BuildContext context) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder:
+        (dialogContext) => AlertDialog(
+          title: const Text('Cerrar sesión'),
+          content: const Text('¿Quieres salir de tu cuenta?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Cerrar sesión'),
+            ),
+          ],
+        ),
+  );
+  if (confirmed != true || !context.mounted) return;
+
+  try {
+    await context.read<AppStore>().signOut();
+  } on ApiException catch (error) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    }
+  } finally {
+    if (context.mounted) context.go('/login');
   }
 }
 
@@ -1000,16 +1035,13 @@ class _CompanyFormScreenState extends State<CompanyFormScreen> {
             TextFormField(
               controller: phoneController,
               keyboardType: TextInputType.phone,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              maxLength: 10,
               autofillHints: const [AutofillHints.telephoneNumber],
               decoration: const InputDecoration(
                 labelText: 'Teléfono (opcional)',
               ),
-              validator: (value) {
-                final digits = (value ?? '').replaceAll(RegExp(r'\D'), '');
-                return digits.isNotEmpty && digits.length < 10
-                    ? 'Escribe un teléfono de al menos 10 dígitos.'
-                    : null;
-              },
+              validator: validatePhoneNumber,
             ),
             const SizedBox(height: 16),
             TextFormField(
@@ -1274,19 +1306,7 @@ class AppShell extends StatelessWidget {
           if (current == 'more')
             IconButton(
               tooltip: 'Cerrar sesión',
-              onPressed: () async {
-                try {
-                  await context.read<AppStore>().signOut();
-                } on ApiException catch (error) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(
-                      context,
-                    ).showSnackBar(SnackBar(content: Text(error.message)));
-                  }
-                } finally {
-                  if (context.mounted) context.go('/login');
-                }
-              },
+              onPressed: () => _confirmSignOut(context),
               icon: const Icon(
                 Icons.logout_rounded,
                 size: 30,
@@ -3630,12 +3650,6 @@ class RecordsScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
         children: [
-          const InfoBanner(
-            text:
-                'Aquí aparecen tus capturas recientes. Los importes no se muestran para tu rol.',
-            tone: AppColors.green,
-          ),
-          const SizedBox(height: 16),
           Card(
             child: Column(
               children: [
@@ -3759,7 +3773,7 @@ class MoreScreen extends StatelessWidget {
           ('Proveedores', Icons.local_shipping_outlined, 'proveedores'),
         if (role != UserRole.capturista)
           ('Clientes', Icons.people_outline, 'clientes'),
-        ('Categorías de gasto', Icons.category_outlined, 'categorias'),
+        ('Categorías de gastos', Icons.category_outlined, 'categorias'),
         if (role != UserRole.capturista)
           ('Alertas', Icons.notifications_active_outlined, 'alertas'),
       ],
@@ -3882,7 +3896,7 @@ class ModuleScreen extends StatelessWidget {
     'predios': 'Predios y parcelas',
     'proveedores': 'Proveedores',
     'clientes': 'Clientes',
-    'categorias': 'Categorías de gasto',
+    'categorias': 'Categorías de gastos',
     'alertas': 'Alertas',
     'usuarios': 'Usuarios y permisos',
     'empresa': 'Mi empresa',
@@ -3927,11 +3941,13 @@ class ModuleScreen extends StatelessWidget {
       'empresa' => const _CompanyModule(),
       'perfil' => const _ProfileModule(),
       'ayuda' => const _HelpModule(),
-      _ => const EmptyState(
+      _ => EmptyState(
         title: 'Módulo sin datos',
         message: 'Agrega el primer registro para comenzar.',
         actionLabel: 'Agregar',
-        onAction: _noop,
+        onAction: () {
+          context.push('/capture');
+        },
       ),
     };
   }
@@ -4609,20 +4625,128 @@ class _AlertsModuleState extends State<_AlertsModule> {
             ? alerts
             : alerts.where((alert) => alert.severity == filter).toList();
     Widget alertItem(ProfitabilityAlert alert) {
-      final banner = InfoBanner(
-        title: '${alert.title} · ${alert.severity}',
-        text: alert.detail,
-        tone:
-            alert.severity == 'Alta'
-                ? AppColors.red
-                : alert.severity == 'Media'
-                ? AppColors.amber
-                : AppColors.blue,
-        icon: Icons.warning_rounded,
+      final tone =
+          alert.severity == 'Alta'
+              ? AppColors.red
+              : alert.severity == 'Media'
+              ? AppColors.amber
+              : AppColors.blue;
+      void dismissAlert() {
+        final index = store.deleteAlert(alert);
+        if (index < 0 || !context.mounted) return;
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: Text('${alert.title} eliminada'),
+              action: SnackBarAction(
+                label: 'Deshacer',
+                onPressed: () => store.restoreAlert(alert, index),
+              ),
+            ),
+          );
+      }
+
+      final card = Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.warning_rounded, color: tone),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${alert.title} · ${alert.severity}',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(alert.detail),
+                    TextButton.icon(
+                      onPressed:
+                          () => showDialog<void>(
+                            context: context,
+                            builder:
+                                (dialogContext) => AlertDialog(
+                                  title: Text(alert.title),
+                                  content: SingleChildScrollView(
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        StatusPill(alert.severity, tone),
+                                        const SizedBox(height: 12),
+                                        Text(alert.detail),
+                                        if (alert.observed?.isNotEmpty ??
+                                            false) ...[
+                                          const SizedBox(height: 16),
+                                          _AlertDetailRow(
+                                            label: 'Valor observado',
+                                            value: alert.observed!,
+                                          ),
+                                        ],
+                                        if (alert.threshold?.isNotEmpty ??
+                                            false) ...[
+                                          const SizedBox(height: 8),
+                                          _AlertDetailRow(
+                                            label: 'Umbral de referencia',
+                                            value: alert.threshold!,
+                                          ),
+                                        ],
+                                        if ((alert.referenceType?.isNotEmpty ??
+                                                false) ||
+                                            (alert.referenceId?.isNotEmpty ??
+                                                false)) ...[
+                                          const SizedBox(height: 8),
+                                          _AlertDetailRow(
+                                            label: 'Registro relacionado',
+                                            value: [
+                                              if (alert
+                                                      .referenceType
+                                                      ?.isNotEmpty ??
+                                                  false)
+                                                alert.referenceType!,
+                                              if (alert
+                                                      .referenceId
+                                                      ?.isNotEmpty ??
+                                                  false)
+                                                '#${alert.referenceId}',
+                                            ].join(' '),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed:
+                                          () => Navigator.pop(dialogContext),
+                                      child: const Text('Cerrar'),
+                                    ),
+                                  ],
+                                ),
+                          ),
+                      icon: const Icon(Icons.info_outline_rounded),
+                      label: const Text('Ver detalles'),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: 'Quitar alerta',
+                onPressed: dismissAlert,
+                icon: const Icon(Icons.delete_outline_rounded),
+              ),
+            ],
+          ),
+        ),
       );
-      if (store.isAuthenticated) return banner;
       return Dismissible(
-        key: ObjectKey(alert),
+        key: ValueKey(alert.key),
         direction: DismissDirection.endToStart,
         background: Container(
           alignment: Alignment.centerRight,
@@ -4637,21 +4761,8 @@ class _AlertsModuleState extends State<_AlertsModule> {
             size: 28,
           ),
         ),
-        onDismissed: (_) {
-          final index = store.deleteAlert(alert);
-          ScaffoldMessenger.of(context)
-            ..hideCurrentSnackBar()
-            ..showSnackBar(
-              SnackBar(
-                content: Text('${alert.title} eliminada'),
-                action: SnackBarAction(
-                  label: 'Deshacer',
-                  onPressed: () => store.restoreAlert(alert, index),
-                ),
-              ),
-            );
-        },
-        child: banner,
+        onDismissed: (_) => dismissAlert(),
+        child: card,
       );
     }
 
@@ -4696,6 +4807,22 @@ class _AlertsModuleState extends State<_AlertsModule> {
       ],
     );
   }
+}
+
+class _AlertDetailRow extends StatelessWidget {
+  const _AlertDetailRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(label, style: Theme.of(context).textTheme.labelMedium),
+      Text(value),
+    ],
+  );
 }
 
 class _ComparisonModule extends StatelessWidget {
@@ -4838,22 +4965,25 @@ class _CategoriesModule extends StatelessWidget {
         InfoBanner(
           title:
               canEdit ? 'Administración habilitada' : 'Vista de solo lectura',
-          text: 'Las categorías del sistema no se pueden eliminar.',
+          text:
+              'Las categorías del sistema no se pueden eliminar. Las personalizadas se pueden quitar si no tienen subcategorías ni gastos registrados.',
           tone: AppColors.blue,
           icon: Icons.account_tree_rounded,
         ),
         const SizedBox(height: 16),
         if (categories.isEmpty)
           const InfoBanner(
-            title: 'Sin categorías de gasto',
+            title: 'Sin categorías de gastos',
             text: 'No hay categorías disponibles en el catálogo del servidor.',
             tone: AppColors.amber,
           )
         else
           for (final category in categories) ...[
             _CategoryCard(
-              title: '${category['nombre']}',
-              children: _categoryChildren(category),
+              category: category,
+              onDelete:
+                  (id, name) =>
+                      _deleteExpenseCategory(context, store, id, name),
             ),
             const SizedBox(height: 12),
           ],
@@ -4870,12 +5000,60 @@ class _CategoriesModule extends StatelessWidget {
   }
 }
 
-List<String> _categoryChildren(Map<String, dynamic> category) {
-  final children = category['subcategorias'];
-  if (children is! List) return const [];
-  return children
-      .map((child) => child is Map ? '${child['nombre']}' : '$child')
-      .toList();
+Future<void> _deleteExpenseCategory(
+  BuildContext context,
+  AppStore store,
+  Object? id,
+  String name,
+) async {
+  final categoryId = int.tryParse('$id');
+  if (categoryId == null) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No se pudo identificar la categoría.')),
+      );
+    }
+    return;
+  }
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder:
+        (dialogContext) => AlertDialog(
+          title: const Text('Eliminar categoría'),
+          content: Text('¿Quieres eliminar la categoría "$name"?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Eliminar'),
+            ),
+          ],
+        ),
+  );
+  if (confirmed != true || !context.mounted) return;
+  try {
+    await store.deleteResource('catalogos/categorias-gasto/$categoryId');
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            store.dataError == null
+                ? 'Categoría eliminada.'
+                : 'Categoría eliminada, pero no se pudo actualizar: ${store.dataError}',
+          ),
+        ),
+      );
+    }
+  } on ApiException catch (error) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    }
+  }
 }
 
 Future<void> _createExpenseCategory(
@@ -4884,25 +5062,37 @@ Future<void> _createExpenseCategory(
 ) async {
   final name = TextEditingController();
   final description = TextEditingController();
+  final formKey = GlobalKey<FormState>();
   final confirmed = await showDialog<bool>(
     context: context,
     builder:
         (dialogContext) => AlertDialog(
           title: const Text('Nueva categoría'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: name,
-                decoration: const InputDecoration(labelText: 'Nombre'),
-              ),
-              TextField(
-                controller: description,
-                decoration: const InputDecoration(
-                  labelText: 'Descripción (opcional)',
+          content: Form(
+            key: formKey,
+            autovalidateMode: AutovalidateMode.onUserInteraction,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: name,
+                  maxLength: 100,
+                  decoration: const InputDecoration(labelText: 'Nombre'),
+                  validator:
+                      (value) =>
+                          (value ?? '').trim().length < 2
+                              ? 'Escribe al menos 2 caracteres.'
+                              : null,
                 ),
-              ),
-            ],
+                TextFormField(
+                  controller: description,
+                  maxLength: 255,
+                  decoration: const InputDecoration(
+                    labelText: 'Descripción (opcional)',
+                  ),
+                ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
@@ -4910,7 +5100,11 @@ Future<void> _createExpenseCategory(
               child: const Text('Cancelar'),
             ),
             FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
+              onPressed: () {
+                if (formKey.currentState!.validate()) {
+                  Navigator.pop(dialogContext, true);
+                }
+              },
               child: const Text('Guardar'),
             ),
           ],
@@ -4918,9 +5112,6 @@ Future<void> _createExpenseCategory(
   );
   if (confirmed == true && context.mounted) {
     try {
-      if (name.text.trim().length < 2) {
-        throw const ApiException('El nombre debe tener al menos 2 caracteres.');
-      }
       await store.createResource(
         'catalogos/categorias-gasto',
         body: {
@@ -4953,24 +5144,48 @@ Future<void> _createExpenseCategory(
 }
 
 class _CategoryCard extends StatelessWidget {
-  const _CategoryCard({required this.title, required this.children});
+  const _CategoryCard({required this.category, required this.onDelete});
 
-  final String title;
-  final List<String> children;
+  final Map<String, dynamic> category;
+  final void Function(Object? id, String name) onDelete;
 
   @override
   Widget build(BuildContext context) {
+    final title = '${category['nombre']}';
+    final children = category['subcategorias'];
+    final isCustom = category['esPersonalizada'] == true;
     return Card(
       child: ExpansionTile(
         leading: const IconBox(Icons.account_tree_rounded),
         title: Text(title),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (isCustom)
+              IconButton(
+                tooltip: 'Eliminar categoría personalizada',
+                onPressed: () => onDelete(category['id'], title),
+                icon: const Icon(Icons.delete_outline_rounded),
+              ),
+            const Icon(Icons.expand_more_rounded),
+          ],
+        ),
         children: [
-          for (final child in children)
-            ListTile(
-              contentPadding: const EdgeInsets.only(left: 72, right: 16),
-              title: Text(child),
-              trailing: const Icon(Icons.drag_handle_rounded),
-            ),
+          if (children is List)
+            for (final child in children.whereType<Map>())
+              ListTile(
+                contentPadding: const EdgeInsets.only(left: 72, right: 16),
+                title: Text('${child['nombre']}'),
+                trailing:
+                    child['esPersonalizada'] == true
+                        ? IconButton(
+                          tooltip: 'Eliminar subcategoría personalizada',
+                          onPressed:
+                              () => onDelete(child['id'], '${child['nombre']}'),
+                          icon: const Icon(Icons.delete_outline_rounded),
+                        )
+                        : const Icon(Icons.drag_handle_rounded),
+              ),
         ],
       ),
     );
@@ -5379,12 +5594,15 @@ Future<void> _editCompany(
   AppStore store,
   Map<String, dynamic> company,
 ) async {
+  final formKey = GlobalKey<FormState>();
   final name = TextEditingController(text: '${company['nombre'] ?? ''}');
   final legalName = TextEditingController(
     text: '${company['razonSocial'] ?? ''}',
   );
   final email = TextEditingController(text: '${company['correo'] ?? ''}');
-  final phone = TextEditingController(text: '${company['telefono'] ?? ''}');
+  final phone = TextEditingController(
+    text: normalizePhoneNumber('${company['telefono'] ?? ''}'),
+  );
   final address = TextEditingController(text: '${company['direccion'] ?? ''}');
   final confirmed = await showDialog<bool>(
     context: context,
@@ -5392,33 +5610,56 @@ Future<void> _editCompany(
         (dialogContext) => AlertDialog(
           title: const Text('Editar empresa'),
           content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: name,
-                  decoration: const InputDecoration(
-                    labelText: 'Nombre comercial',
+            child: Form(
+              key: formKey,
+              autovalidateMode: AutovalidateMode.onUserInteraction,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    controller: name,
+                    decoration: const InputDecoration(
+                      labelText: 'Nombre comercial',
+                    ),
+                    validator:
+                        (value) =>
+                            (value ?? '').trim().length < 3
+                                ? 'Escribe al menos 3 caracteres.'
+                                : null,
                   ),
-                ),
-                TextField(
-                  controller: legalName,
-                  decoration: const InputDecoration(labelText: 'Razón social'),
-                ),
-                TextField(
-                  controller: email,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(labelText: 'Correo'),
-                ),
-                TextField(
-                  controller: phone,
-                  decoration: const InputDecoration(labelText: 'Teléfono'),
-                ),
-                TextField(
-                  controller: address,
-                  decoration: const InputDecoration(labelText: 'Dirección'),
-                ),
-              ],
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: legalName,
+                    decoration: const InputDecoration(
+                      labelText: 'Razón social',
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: email,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: const InputDecoration(labelText: 'Correo'),
+                    validator:
+                        (value) => validateEmailAddress(value, required: true),
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: phone,
+                    keyboardType: TextInputType.phone,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    maxLength: 10,
+                    decoration: const InputDecoration(
+                      labelText: 'Teléfono (opcional)',
+                    ),
+                    validator: validatePhoneNumber,
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: address,
+                    decoration: const InputDecoration(labelText: 'Dirección'),
+                  ),
+                ],
+              ),
             ),
           ),
           actions: [
@@ -5427,7 +5668,11 @@ Future<void> _editCompany(
               child: const Text('Cancelar'),
             ),
             FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
+              onPressed: () {
+                if (formKey.currentState!.validate()) {
+                  Navigator.pop(dialogContext, true);
+                }
+              },
               child: const Text('Guardar'),
             ),
           ],
@@ -5533,7 +5778,8 @@ Future<void> _editProfile(
 ) async {
   final name = TextEditingController(text: user.name);
   final email = TextEditingController(text: user.email);
-  final phone = TextEditingController(text: user.phone);
+  final phone = TextEditingController(text: normalizePhoneNumber(user.phone));
+  final formKey = GlobalKey<FormState>();
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -5547,103 +5793,119 @@ Future<void> _editProfile(
             MediaQuery.viewInsetsOf(sheetContext).bottom + 20,
           ),
           child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Editar datos personales',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: name,
-                  textCapitalization: TextCapitalization.words,
-                  decoration: const InputDecoration(
-                    labelText: 'Nombre completo',
-                    prefixIcon: Icon(Icons.person_rounded),
+            child: Form(
+              key: formKey,
+              autovalidateMode: AutovalidateMode.onUserInteraction,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Editar datos personales',
+                    style: Theme.of(context).textTheme.titleLarge,
                   ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: email,
-                  enabled: !store.isAuthenticated,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(
-                    labelText: 'Correo electrónico',
-                    prefixIcon: Icon(Icons.alternate_email_rounded),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: name,
+                    textCapitalization: TextCapitalization.words,
+                    decoration: const InputDecoration(
+                      labelText: 'Nombre completo',
+                      prefixIcon: Icon(Icons.person_rounded),
+                    ),
+                    validator: (value) {
+                      final parts = (value ?? '').trim().split(RegExp(r'\s+'));
+                      return parts.length < 2 ||
+                              parts.first.length < 2 ||
+                              parts.skip(1).join(' ').length < 2
+                          ? 'Escribe nombre y apellido.'
+                          : null;
+                    },
                   ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: phone,
-                  keyboardType: TextInputType.phone,
-                  decoration: const InputDecoration(
-                    labelText: 'Teléfono',
-                    prefixIcon: Icon(Icons.phone_rounded),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: email,
+                    enabled: !store.isAuthenticated,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: const InputDecoration(
+                      labelText: 'Correo electrónico',
+                      prefixIcon: Icon(Icons.alternate_email_rounded),
+                    ),
+                    validator:
+                        (value) =>
+                            store.isAuthenticated
+                                ? null
+                                : validateEmailAddress(value, required: true),
                   ),
-                ),
-                const SizedBox(height: 20),
-                FilledButton.icon(
-                  onPressed: () async {
-                    final nameParts = name.text.trim().split(RegExp(r'\s+'));
-                    if (nameParts.length < 2 ||
-                        nameParts.first.length < 2 ||
-                        nameParts.skip(1).join(' ').length < 2 ||
-                        !email.text.contains('@')) {
-                      return;
-                    }
-                    try {
-                      if (store.isAuthenticated) {
-                        final userId = int.tryParse(user.id ?? '');
-                        if (userId == null) {
-                          throw const ApiException(
-                            'No se pudo identificar al usuario actual.',
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: phone,
+                    keyboardType: TextInputType.phone,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    maxLength: 10,
+                    decoration: const InputDecoration(
+                      labelText: 'Teléfono',
+                      prefixIcon: Icon(Icons.phone_rounded),
+                    ),
+                    validator: validatePhoneNumber,
+                  ),
+                  const SizedBox(height: 20),
+                  FilledButton.icon(
+                    onPressed: () async {
+                      if (!formKey.currentState!.validate()) return;
+                      final nameParts = name.text.trim().split(RegExp(r'\s+'));
+                      try {
+                        if (store.isAuthenticated) {
+                          final userId = int.tryParse(user.id ?? '');
+                          if (userId == null) {
+                            throw const ApiException(
+                              'No se pudo identificar al usuario actual.',
+                            );
+                          }
+                          await store.updateResource(
+                            'usuarios/$userId',
+                            body: {
+                              'nombre': nameParts.first,
+                              'apellido': nameParts.skip(1).join(' '),
+                              if (phone.text.trim() !=
+                                  normalizePhoneNumber(user.phone))
+                                'telefono': phone.text.trim(),
+                            },
                           );
                         }
-                        await store.updateResource(
-                          'usuarios/$userId',
-                          body: {
-                            'nombre': nameParts.first,
-                            'apellido': nameParts.skip(1).join(' '),
-                            if (phone.text.trim() != user.phone)
-                              'telefono': phone.text.trim(),
-                          },
+                        store.updateCurrentUser(
+                          name: name.text.trim(),
+                          email:
+                              store.isAuthenticated
+                                  ? user.email
+                                  : email.text.trim(),
+                          phone: phone.text.trim(),
                         );
-                      }
-                      store.updateCurrentUser(
-                        name: name.text.trim(),
-                        email:
-                            store.isAuthenticated
-                                ? user.email
-                                : email.text.trim(),
-                        phone: phone.text.trim(),
-                      );
-                      if (!sheetContext.mounted) return;
-                      Navigator.pop(sheetContext);
-                      if (context.mounted && store.isAuthenticated) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              store.dataError == null
-                                  ? 'Perfil actualizado en el servidor.'
-                                  : 'Perfil actualizado, pero no se pudo refrescar: ${store.dataError}',
+                        if (!sheetContext.mounted) return;
+                        Navigator.pop(sheetContext);
+                        if (context.mounted && store.isAuthenticated) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                store.dataError == null
+                                    ? 'Perfil actualizado en el servidor.'
+                                    : 'Perfil actualizado, pero no se pudo refrescar: ${store.dataError}',
+                              ),
                             ),
-                          ),
-                        );
+                          );
+                        }
+                      } on ApiException catch (error) {
+                        if (sheetContext.mounted) {
+                          ScaffoldMessenger.of(sheetContext).showSnackBar(
+                            SnackBar(content: Text(error.message)),
+                          );
+                        }
                       }
-                    } on ApiException catch (error) {
-                      if (sheetContext.mounted) {
-                        ScaffoldMessenger.of(
-                          sheetContext,
-                        ).showSnackBar(SnackBar(content: Text(error.message)));
-                      }
-                    }
-                  },
-                  icon: const Icon(Icons.save_rounded),
-                  label: const Text('Guardar cambios'),
-                ),
-              ],
+                    },
+                    icon: const Icon(Icons.save_rounded),
+                    label: const Text('Guardar cambios'),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -5658,6 +5920,7 @@ Future<void> _changePassword(BuildContext context) async {
   final password = TextEditingController();
   final confirmation = TextEditingController();
   final store = context.read<AppStore>();
+  final formKey = GlobalKey<FormState>();
   final apiClient = ApiClient();
   final pageContext = context;
   final isBackendSession = store.isAuthenticated;
@@ -5669,11 +5932,6 @@ Future<void> _changePassword(BuildContext context) async {
     builder:
         (sheetContext) => StatefulBuilder(
           builder: (context, setModalState) {
-            final valid =
-                current.text.isNotEmpty &&
-                password.text.length >= 8 &&
-                password.text == confirmation.text &&
-                !isSaving;
             return Padding(
               padding: EdgeInsets.fromLTRB(
                 20,
@@ -5682,139 +5940,158 @@ Future<void> _changePassword(BuildContext context) async {
                 MediaQuery.viewInsetsOf(sheetContext).bottom + 20,
               ),
               child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      'Cambiar contraseña',
-                      style: Theme.of(context).textTheme.headlineSmall,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Usa al menos 8 caracteres para proteger tu cuenta.',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    const SizedBox(height: 20),
-                    TextField(
-                      controller: current,
-                      obscureText: true,
-                      onChanged: (_) => setModalState(() {}),
-                      decoration: const InputDecoration(
-                        labelText: 'Contraseña actual',
-                        prefixIcon: Icon(Icons.lock_outline_rounded),
+                child: Form(
+                  key: formKey,
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'Cambiar contraseña',
+                        style: Theme.of(context).textTheme.headlineSmall,
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: password,
-                      obscureText: true,
-                      onChanged: (_) => setModalState(() {}),
-                      decoration: const InputDecoration(
-                        labelText: 'Nueva contraseña',
-                        helperText: 'Mínimo 8 caracteres.',
-                        prefixIcon: Icon(Icons.password_rounded),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Usa al menos 8 caracteres para proteger tu cuenta.',
+                        style: Theme.of(context).textTheme.bodySmall,
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: confirmation,
-                      obscureText: true,
-                      onChanged: (_) => setModalState(() {}),
-                      decoration: InputDecoration(
-                        labelText: 'Confirmar contraseña',
-                        errorText:
-                            confirmation.text.isNotEmpty &&
-                                    password.text != confirmation.text
-                                ? 'Las contraseñas no coinciden'
-                                : null,
-                        prefixIcon: const Icon(Icons.verified_user_outlined),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(sheetContext),
-                          child: const Text('Cancelar'),
+                      const SizedBox(height: 20),
+                      TextFormField(
+                        controller: current,
+                        obscureText: true,
+                        onChanged: (_) => setModalState(() {}),
+                        decoration: const InputDecoration(
+                          labelText: 'Contraseña actual',
+                          prefixIcon: Icon(Icons.lock_outline_rounded),
                         ),
-                        const SizedBox(width: 8),
-                        FilledButton.icon(
-                          onPressed:
-                              valid
-                                  ? () async {
-                                    setModalState(() => isSaving = true);
-                                    try {
-                                      if (isBackendSession) {
-                                        await apiClient.dio.patch<void>(
-                                          'auth/contrasena/cambiar',
-                                          data: {
-                                            'contrasenaActual': current.text,
-                                            'nuevaContrasena': password.text,
-                                          },
-                                        );
-                                        await apiClient.tokenStorage
-                                            .clearTokens();
-                                        await store.signOut();
-                                      }
-                                      if (!sheetContext.mounted) return;
-                                      Navigator.pop(sheetContext);
-                                      if (pageContext.mounted) {
-                                        if (isBackendSession) {
-                                          pageContext.go('/login');
-                                        }
-                                        ScaffoldMessenger.of(
-                                          pageContext,
-                                        ).showSnackBar(
-                                          SnackBar(
-                                            content: Text(
-                                              isBackendSession
-                                                  ? 'La contraseña se actualizó.'
-                                                  : 'Contraseña actualizada.',
-                                            ),
-                                          ),
-                                        );
-                                      }
-                                    } on DioException catch (error) {
-                                      if (sheetContext.mounted) {
-                                        ScaffoldMessenger.of(
-                                          sheetContext,
-                                        ).showSnackBar(
-                                          SnackBar(
-                                            content: Text(
-                                              ApiException.fromDio(
-                                                error,
-                                              ).message,
-                                            ),
-                                          ),
-                                        );
-                                      }
-                                    } on ApiException catch (error) {
-                                      if (sheetContext.mounted) {
-                                        ScaffoldMessenger.of(
-                                          sheetContext,
-                                        ).showSnackBar(
-                                          SnackBar(
-                                            content: Text(error.message),
-                                          ),
-                                        );
-                                      }
-                                    } finally {
-                                      if (sheetContext.mounted) {
-                                        setModalState(() => isSaving = false);
-                                      }
-                                    }
-                                  }
-                                  : null,
-                          icon: const Icon(Icons.check_circle_outline_rounded),
-                          label: Text(
-                            isSaving ? 'Actualizando…' : 'Actualizar',
+                        validator:
+                            (value) =>
+                                (value ?? '').isEmpty
+                                    ? 'Escribe tu contraseña actual.'
+                                    : null,
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: password,
+                        obscureText: true,
+                        onChanged: (_) => setModalState(() {}),
+                        decoration: const InputDecoration(
+                          labelText: 'Nueva contraseña',
+                          helperText: 'Mínimo 8 caracteres.',
+                          prefixIcon: Icon(Icons.password_rounded),
+                        ),
+                        validator:
+                            (value) =>
+                                (value ?? '').length < 8
+                                    ? 'Usa al menos 8 caracteres.'
+                                    : null,
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: confirmation,
+                        obscureText: true,
+                        onChanged: (_) => setModalState(() {}),
+                        decoration: const InputDecoration(
+                          labelText: 'Confirmar contraseña',
+                          prefixIcon: Icon(Icons.verified_user_outlined),
+                        ),
+                        validator:
+                            (value) =>
+                                value != password.text
+                                    ? 'Las contraseñas no coinciden.'
+                                    : null,
+                      ),
+                      const SizedBox(height: 20),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(sheetContext),
+                            child: const Text('Cancelar'),
                           ),
-                        ),
-                      ],
-                    ),
-                  ],
+                          const SizedBox(width: 8),
+                          FilledButton.icon(
+                            onPressed:
+                                isSaving
+                                    ? null
+                                    : () async {
+                                      if (!formKey.currentState!.validate()) {
+                                        return;
+                                      }
+                                      setModalState(() => isSaving = true);
+                                      try {
+                                        if (isBackendSession) {
+                                          await apiClient.dio.patch<void>(
+                                            'auth/contrasena/cambiar',
+                                            data: {
+                                              'contrasenaActual': current.text,
+                                              'nuevaContrasena': password.text,
+                                            },
+                                          );
+                                          await apiClient.tokenStorage
+                                              .clearTokens();
+                                          await store.signOut();
+                                        }
+                                        if (!sheetContext.mounted) return;
+                                        Navigator.pop(sheetContext);
+                                        if (pageContext.mounted) {
+                                          if (isBackendSession) {
+                                            pageContext.go('/login');
+                                          }
+                                          ScaffoldMessenger.of(
+                                            pageContext,
+                                          ).showSnackBar(
+                                            SnackBar(
+                                              content: Text(
+                                                isBackendSession
+                                                    ? 'La contraseña se actualizó.'
+                                                    : 'Contraseña actualizada.',
+                                              ),
+                                            ),
+                                          );
+                                        }
+                                      } on DioException catch (error) {
+                                        if (sheetContext.mounted) {
+                                          ScaffoldMessenger.of(
+                                            sheetContext,
+                                          ).showSnackBar(
+                                            SnackBar(
+                                              content: Text(
+                                                ApiException.fromDio(
+                                                  error,
+                                                ).message,
+                                              ),
+                                            ),
+                                          );
+                                        }
+                                      } on ApiException catch (error) {
+                                        if (sheetContext.mounted) {
+                                          ScaffoldMessenger.of(
+                                            sheetContext,
+                                          ).showSnackBar(
+                                            SnackBar(
+                                              content: Text(error.message),
+                                            ),
+                                          );
+                                        }
+                                      } finally {
+                                        if (sheetContext.mounted) {
+                                          setModalState(() => isSaving = false);
+                                        }
+                                      }
+                                    },
+                            icon: const Icon(
+                              Icons.check_circle_outline_rounded,
+                            ),
+                            label: Text(
+                              isSaving ? 'Actualizando…' : 'Confirmar cambio',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
             );

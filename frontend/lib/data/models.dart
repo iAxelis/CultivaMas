@@ -207,9 +207,19 @@ class ProfitabilityAlert {
     required this.severity,
     required this.title,
     required this.detail,
+    this.observed,
+    this.threshold,
+    this.referenceType,
+    this.referenceId,
   });
 
   final String severity;
   final String title;
   final String detail;
+  final String? observed;
+  final String? threshold;
+  final String? referenceType;
+  final String? referenceId;
+
+  String get key => '$severity|$title|$referenceType|$referenceId|$detail';
 }

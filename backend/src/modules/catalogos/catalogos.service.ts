@@ -240,6 +240,52 @@ export class CatalogosService {
     return this.mapearCategoria(nuevaCategoria, false);
   }
 
+  async eliminarCategoriaGasto(empresaId: number, id: number): Promise<void> {
+    const categoria = await this.prisma.categoriaGasto.findUnique({
+      where: { id },
+      include: {
+        hijas: {
+          select: { id: true },
+        },
+        _count: { select: { gastos: true } },
+      },
+    });
+
+    if (!categoria || !categoria.activo || categoria.empresaId !== empresaId) {
+      throw new DomainError(
+        CodigoError.RECURSO_NO_ENCONTRADO,
+        'La categoría personalizada no existe o no pertenece a su empresa',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    if (categoria.hijas.length > 0 || categoria._count.gastos > 0) {
+      throw new DomainError(
+        CodigoError.CONFLICTO,
+        'No se puede eliminar una categoría con subcategorías o gastos asociados',
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.categoriaGasto.delete({ where: { id } });
+      await this.auditService.registrar(
+        {
+          empresaId,
+          entidad: 'categoria_gasto',
+          entidadId: id,
+          accion: AccionAuditoria.ELIMINAR,
+          valoresAnteriores: {
+            id,
+            nombre: categoria.nombre,
+            categoriaPadreId: categoria.categoriaPadreId,
+          },
+        },
+        tx,
+      );
+    });
+  }
+
   private mapearCategoria(
     c: {
       id: number;

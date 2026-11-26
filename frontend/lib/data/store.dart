@@ -53,6 +53,7 @@ class AppStore extends ChangeNotifier {
   final List<AppUser> users = [];
   final List<AuditEntry> auditEntries = [];
   final List<ProfitabilityAlert> alerts = [];
+  final Set<String> _dismissedAlertKeys = {};
   final List<FarmCycle> cycles = [];
   final List<Sale> sales = [];
   final List<ActivityRecord> records = [];
@@ -352,6 +353,7 @@ class AppStore extends ChangeNotifier {
     users.clear();
     auditEntries.clear();
     alerts.clear();
+    _dismissedAlertKeys.clear();
     cycles.clear();
     sales.clear();
     records.clear();
@@ -651,9 +653,7 @@ class AppStore extends ChangeNotifier {
 
   void _loadAlerts(Map<String, dynamic>? response) {
     final rows = response?['data'];
-    alerts
-      ..clear()
-      ..addAll(
+    final loadedAlerts =
         rows is List
             ? rows.whereType<Map>().map(
               (row) => ProfitabilityAlert(
@@ -669,9 +669,20 @@ class AppStore extends ChangeNotifier {
                   row['mensaje'],
                   fallback: 'Revisa el registro relacionado.',
                 ),
+                observed: _text(row['observado']),
+                threshold: _text(row['umbral']),
+                referenceType: _text(row['referenciaTipo']),
+                referenceId:
+                    row['referenciaId'] == null
+                        ? null
+                        : _text(row['referenciaId']),
               ),
             )
-            : const <ProfitabilityAlert>[],
+            : const <ProfitabilityAlert>[];
+    alerts
+      ..clear()
+      ..addAll(
+        loadedAlerts.where((alert) => !_dismissedAlertKeys.contains(alert.key)),
       );
   }
 
@@ -908,11 +919,13 @@ class AppStore extends ChangeNotifier {
     final index = alerts.indexOf(alert);
     if (index < 0) return -1;
     alerts.removeAt(index);
+    _dismissedAlertKeys.add(alert.key);
     notifyListeners();
     return index;
   }
 
   void restoreAlert(ProfitabilityAlert alert, int index) {
+    _dismissedAlertKeys.remove(alert.key);
     alerts.insert(index.clamp(0, alerts.length).toInt(), alert);
     notifyListeners();
   }

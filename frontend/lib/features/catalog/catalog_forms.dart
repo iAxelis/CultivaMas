@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/theme.dart';
+import '../../core/validation.dart';
 import '../../core/widgets.dart';
 import '../../data/api_client.dart';
 import '../../data/models.dart';
@@ -36,9 +38,9 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
   bool active = true;
   bool isSaving = false;
   bool _initialized = false;
+  final formKey = GlobalKey<FormState>();
 
-  double? get _areaValue =>
-      double.tryParse(area.text.trim().replaceAll(',', '.'));
+  double? get _areaValue => parseDecimal(area.text);
 
   @override
   void didChangeDependencies() {
@@ -79,7 +81,7 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
           if (partner.id == widget.recordId) {
             name.text = partner.name;
             rfc.text = partner.rfc;
-            phone.text = partner.phone;
+            phone.text = normalizePhoneNumber(partner.phone);
             email.text = partner.email;
             address.text = partner.address;
             clientType = partner.kind;
@@ -95,7 +97,7 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
             name.text = nameParts.first;
             lastName.text = nameParts.skip(1).join(' ');
             detail.text = user.email;
-            phone.text = user.phone;
+            phone.text = normalizePhoneNumber(user.phone);
             role = user.role;
             active = user.active;
             break;
@@ -121,13 +123,13 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
   }
 
   String get title => switch (widget.type) {
-        'property' => _isEditing ? 'Editar predio' : 'Nuevo predio · F-03',
-        'parcel' => _isEditing ? 'Editar parcela' : 'Nueva parcela · F-04',
-        'user' => _isEditing ? 'Editar usuario' : 'Nuevo usuario · F-02',
-        'client' => _isEditing ? 'Editar cliente' : 'Nuevo cliente',
-        'supplier' => _isEditing ? 'Editar proveedor' : 'Nuevo proveedor',
-        _ => 'Nuevo registro',
-      };
+    'property' => _isEditing ? 'Editar predio' : 'Nuevo predio · F-03',
+    'parcel' => _isEditing ? 'Editar parcela' : 'Nueva parcela · F-04',
+    'user' => _isEditing ? 'Editar usuario' : 'Nuevo usuario · F-02',
+    'client' => _isEditing ? 'Editar cliente' : 'Nuevo cliente',
+    'supplier' => _isEditing ? 'Editar proveedor' : 'Nuevo proveedor',
+    _ => 'Nuevo registro',
+  };
 
   bool get _isEditing => widget.recordId != null;
 
@@ -153,35 +155,7 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
         quotas is Map
             ? int.tryParse('${quotas['usuariosActivos']}') ?? store.users.length
             : store.users.length;
-    final hasUserQuota =
-        maxUsers > 0 && activeUsers < maxUsers;
-    final hasValidCoordinates =
-        _coordinateValues != null || coordinates.text.trim().isEmpty;
-    final valid = name.text.trim().isNotEmpty &&
-        hasValidCoordinates &&
-        (widget.type != 'property' ||
-            parsedArea > 0 &&
-                (!_isEditing ||
-                    property != null && parsedArea >= property.occupiedArea)) &&
-        (widget.type != 'parcel' ||
-            property != null &&
-                (store.canAddParcel(property, parsedArea) ||
-                    _isEditing &&
-                        property.parcels.any(
-                          (parcel) => parcel.id == widget.recordId,
-                        ) &&
-                        parsedArea <=
-                            property.availableArea +
-                                property.parcels
-                                    .firstWhere(
-                                      (parcel) => parcel.id == widget.recordId,
-                                    )
-                                    .area)) &&
-        (widget.type != 'user' ||
-            detail.text.contains('@') &&
-                lastName.text.trim().isNotEmpty &&
-                (_isEditing || password.text.length >= 6) &&
-                (_isEditing || hasUserQuota));
+    final hasUserQuota = maxUsers > 0 && activeUsers < maxUsers;
     if (widget.type == 'parcel' && property == null) {
       return Scaffold(
         appBar: AppBar(title: Text(title)),
@@ -198,81 +172,159 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
       bottomNavigationBar: SafeArea(
         minimum: const EdgeInsets.all(16),
         child: FilledButton(
-          onPressed: valid && !isSaving ? () => _save(store, property) : null,
+          onPressed:
+              isSaving
+                  ? null
+                  : () {
+                    if (!formKey.currentState!.validate()) return;
+                    final message = _validationMessage(
+                      store,
+                      property,
+                      hasUserQuota,
+                    );
+                    if (message != null) {
+                      ScaffoldMessenger.of(
+                        context,
+                      ).showSnackBar(SnackBar(content: Text(message)));
+                      return;
+                    }
+                    _save(store, property);
+                  },
           child: Text(isSaving ? 'Guardando…' : 'Guardar'),
         ),
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          if (widget.type == 'parcel') ...[
-            InfoBanner(
-              title: '${property!.availableArea.toStringAsFixed(1)} ha disponibles',
-              text: 'La suma de parcelas no puede superar ${property.area.toStringAsFixed(1)} ha.',
-              tone: parsedArea > property.availableArea ? AppColors.red : AppColors.green,
-              icon: Icons.square_foot_rounded,
-            ),
-            const SizedBox(height: 20),
-          ],
-          if (widget.type == 'user') ...[
-            InfoBanner(
-              title:
-                  maxUsers > 0
-                      ? '$activeUsers de $maxUsers usuarios'
-                      : 'Cuota de usuarios no disponible',
-              text:
-                  maxUsers > 0
-                      ? 'Quedan ${maxUsers - activeUsers} lugares en el plan actual.'
-                      : 'No se pudo consultar el límite vigente del plan.',
-              tone:
-                  hasUserQuota ? AppColors.green : AppColors.amber,
-              icon: Icons.group_add_rounded,
-            ),
-            const SizedBox(height: 20),
-          ],
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  FieldBlock(
-                    label: _nameLabel,
-                    help: 'Campo requerido.',
-                    child: TextFormField(
-                      controller: name,
-                      onChanged: (_) => setState(() {}),
-                      decoration: InputDecoration(hintText: _nameHint),
+      body: Form(
+        key: formKey,
+        autovalidateMode: AutovalidateMode.onUserInteraction,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            if (widget.type == 'parcel') ...[
+              InfoBanner(
+                title:
+                    '${property!.availableArea.toStringAsFixed(1)} ha disponibles',
+                text:
+                    'La suma de parcelas no puede superar ${property.area.toStringAsFixed(1)} ha.',
+                tone:
+                    parsedArea > property.availableArea
+                        ? AppColors.red
+                        : AppColors.green,
+                icon: Icons.square_foot_rounded,
+              ),
+              const SizedBox(height: 20),
+            ],
+            if (widget.type == 'user') ...[
+              InfoBanner(
+                title:
+                    maxUsers > 0
+                        ? '$activeUsers de $maxUsers usuarios'
+                        : 'Cuota de usuarios no disponible',
+                text:
+                    maxUsers > 0
+                        ? 'Quedan ${maxUsers - activeUsers} lugares en el plan actual.'
+                        : 'No se pudo consultar el límite vigente del plan.',
+                tone: hasUserQuota ? AppColors.green : AppColors.amber,
+                icon: Icons.group_add_rounded,
+              ),
+              const SizedBox(height: 20),
+            ],
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    FieldBlock(
+                      label: _nameLabel,
+                      help: 'Campo requerido.',
+                      child: TextFormField(
+                        controller: name,
+                        onChanged: (_) => setState(() {}),
+                        decoration: InputDecoration(hintText: _nameHint),
+                        validator:
+                            (value) =>
+                                (value ?? '').trim().length < 2
+                                    ? 'Escribe al menos 2 caracteres.'
+                                    : null,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  ..._specificFields(store, property),
-                ],
+                    const SizedBox(height: 16),
+                    ..._specificFields(store, property),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
+  String? _validationMessage(
+    AppStore store,
+    FarmProperty? property,
+    bool hasUserQuota,
+  ) {
+    if (name.text.trim().length < 2) {
+      return 'Escribe un nombre de al menos 2 caracteres.';
+    }
+    if (coordinates.text.trim().isNotEmpty && _coordinateValues == null) {
+      return 'Revisa el formato de las coordenadas.';
+    }
+    if (widget.type == 'property') {
+      final value = _areaValue ?? 0;
+      if (value <= 0) return 'La superficie debe ser mayor que cero.';
+      if (_isEditing && property != null && value < property.occupiedArea) {
+        return 'La superficie no puede ser menor a la ocupada por parcelas.';
+      }
+    }
+    if (widget.type == 'parcel') {
+      if (property == null) return 'Selecciona un predio.';
+      final value = _areaValue ?? 0;
+      if (value <= 0) return 'La superficie debe ser mayor que cero.';
+      if (store.canAddParcel(property, value)) return null;
+      final currentParcels = property.parcels.where(
+        (parcel) => parcel.id == widget.recordId,
+      );
+      final currentParcel =
+          _isEditing && currentParcels.isNotEmpty ? currentParcels.first : null;
+      if (currentParcel == null ||
+          value > property.availableArea + currentParcel.area) {
+        return 'La superficie supera el área disponible del predio.';
+      }
+    }
+    if (widget.type == 'user') {
+      if (lastName.text.trim().isEmpty) return 'Escribe el apellido.';
+      if (validateEmailAddress(detail.text, required: true) != null) {
+        return 'Escribe un correo electrónico válido.';
+      }
+      if (!_isEditing && password.text.length < 6) {
+        return 'La contraseña temporal debe tener al menos 6 caracteres.';
+      }
+      if (!_isEditing && !hasUserQuota) {
+        return 'No hay lugares disponibles para agregar usuarios al plan.';
+      }
+    }
+    return null;
+  }
+
   String get _nameLabel => switch (widget.type) {
-        'property' => 'Nombre del predio',
-        'parcel' => 'Nombre de la parcela',
-        'user' => 'Nombre',
-        'client' => 'Nombre o razón social',
-        'supplier' => 'Nombre del proveedor',
-        _ => 'Nombre',
-      };
+    'property' => 'Nombre del predio',
+    'parcel' => 'Nombre de la parcela',
+    'user' => 'Nombre',
+    'client' => 'Nombre o razón social',
+    'supplier' => 'Nombre del proveedor',
+    _ => 'Nombre',
+  };
 
   String get _nameHint => switch (widget.type) {
-        'property' => 'Predio El Encino',
-        'parcel' => 'Parcela 5',
-        'user' => 'Nombre del usuario',
-        'client' => 'Cliente',
-        'supplier' => 'Proveedor',
-        _ => 'Nombre',
-      };
+    'property' => 'Predio El Encino',
+    'parcel' => 'Parcela 5',
+    'user' => 'Nombre del usuario',
+    'client' => 'Cliente',
+    'supplier' => 'Proveedor',
+    _ => 'Nombre',
+  };
 
   List<Widget> _specificFields(AppStore store, FarmProperty? property) {
     if (widget.type == 'property') {
@@ -284,6 +336,18 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
             controller: area,
             onChanged: (_) => setState(() {}),
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            validator: (value) {
+              final parsed = parseDecimal(value ?? '');
+              if (parsed == null || parsed <= 0) {
+                return 'La superficie debe ser mayor que cero.';
+              }
+              if (_isEditing &&
+                  property != null &&
+                  parsed < property.occupiedArea) {
+                return 'No puede ser menor al área ocupada por parcelas.';
+              }
+              return null;
+            },
             decoration: const InputDecoration(suffixText: 'ha'),
           ),
         ),
@@ -303,6 +367,11 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
           child: TextFormField(
             controller: coordinates,
             onChanged: (_) => setState(() {}),
+            validator:
+                (value) =>
+                    (value ?? '').trim().isNotEmpty && _coordinateValues == null
+                        ? 'Usa latitud, longitud con coordenadas válidas.'
+                        : null,
             decoration: InputDecoration(
               hintText: '17.0466, -96.6360',
               errorText:
@@ -335,57 +404,76 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
                 for (final item in store.properties)
                   DropdownMenuItem(value: item.id, child: Text(item.name)),
               ],
-              onChanged:
-                  (value) => setState(() => selectedPropertyId = value),
+              onChanged: (value) => setState(() => selectedPropertyId = value),
             ),
           ),
           const SizedBox(height: 20),
         ],
         FieldBlock(
           label: 'Superficie',
-          help: widget.type == 'parcel'
-              ? 'No puede superar ${property.availableArea.toStringAsFixed(1)} ha disponibles.'
-              : 'Superficie total del predio.',
+          help:
+              widget.type == 'parcel'
+                  ? 'No puede superar ${property.availableArea.toStringAsFixed(1)} ha disponibles.'
+                  : 'Superficie total del predio.',
           child: TextFormField(
             controller: area,
             onChanged: (_) => setState(() {}),
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            validator: (value) {
+              final parsed = parseDecimal(value ?? '');
+              if (parsed == null || parsed <= 0) {
+                return 'La superficie debe ser mayor que cero.';
+              }
+              if (parsed > property.availableArea && !_isEditing) {
+                return 'Supera la superficie disponible.';
+              }
+              return null;
+            },
             decoration: InputDecoration(
               suffixText: 'ha',
-              errorText: widget.type == 'parcel' &&
-                      (double.tryParse(area.text) ?? 0) > property.availableArea
-                  ? 'Supera la superficie disponible'
-                  : null,
+              errorText:
+                  widget.type == 'parcel' &&
+                          (parseDecimal(area.text) ?? 0) >
+                              property.availableArea
+                      ? 'Supera la superficie disponible'
+                      : null,
             ),
           ),
         ),
         const SizedBox(height: 20),
         FieldBlock(
           label: widget.type == 'parcel' ? 'Tipo de suelo' : 'Ubicación',
-          help: widget.type == 'parcel'
-              ? 'Se usa en la ficha agronómica.'
-              : 'Municipio y estado.',
-          child: widget.type == 'parcel' && store.isAuthenticated
-              ? DropdownButtonFormField<String>(
-                  initialValue: soilNames.contains(selectedSoilType)
-                      ? selectedSoilType
-                      : null,
-                  items: [
-                    for (final soilType in soilNames)
-                      DropdownMenuItem(value: soilType, child: Text(soilType)),
-                  ],
-                  onChanged: (value) => setState(
-                    () => selectedSoilType = value ?? '',
+          help:
+              widget.type == 'parcel'
+                  ? 'Se usa en la ficha agronómica.'
+                  : 'Municipio y estado.',
+          child:
+              widget.type == 'parcel' && store.isAuthenticated
+                  ? DropdownButtonFormField<String>(
+                    initialValue:
+                        soilNames.contains(selectedSoilType)
+                            ? selectedSoilType
+                            : null,
+                    items: [
+                      for (final soilType in soilNames)
+                        DropdownMenuItem(
+                          value: soilType,
+                          child: Text(soilType),
+                        ),
+                    ],
+                    onChanged:
+                        (value) =>
+                            setState(() => selectedSoilType = value ?? ''),
+                  )
+                  : TextFormField(
+                    controller: detail,
+                    decoration: InputDecoration(
+                      hintText:
+                          widget.type == 'parcel'
+                              ? 'Franco arcilloso'
+                              : 'Santa María del Tule, Oaxaca',
+                    ),
                   ),
-                )
-              : TextFormField(
-                  controller: detail,
-                  decoration: InputDecoration(
-                    hintText: widget.type == 'parcel'
-                        ? 'Franco arcilloso'
-                        : 'Santa María del Tule, Oaxaca',
-                  ),
-                ),
         ),
         const SizedBox(height: 20),
         FieldBlock(
@@ -394,12 +482,18 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
           child: TextFormField(
             controller: coordinates,
             onChanged: (_) => setState(() {}),
+            validator:
+                (value) =>
+                    (value ?? '').trim().isNotEmpty && _coordinateValues == null
+                        ? 'Usa latitud, longitud con coordenadas válidas.'
+                        : null,
             decoration: InputDecoration(
               hintText: '17.0466, -96.6360',
-              errorText: coordinates.text.trim().isNotEmpty &&
-                      _coordinateValues == null
-                  ? 'Usa latitud, longitud con coordenadas válidas.'
-                  : null,
+              errorText:
+                  coordinates.text.trim().isNotEmpty &&
+                          _coordinateValues == null
+                      ? 'Usa latitud, longitud con coordenadas válidas.'
+                      : null,
             ),
           ),
         ),
@@ -414,36 +508,48 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
             controller: lastName,
             onChanged: (_) => setState(() {}),
             decoration: const InputDecoration(hintText: 'Apellido del usuario'),
+            validator:
+                (value) =>
+                    (value ?? '').trim().isEmpty
+                        ? 'Escribe el apellido del usuario.'
+                        : null,
           ),
         ),
         const SizedBox(height: 20),
         FieldBlock(
           label: 'Correo',
-          help: _isEditing
-              ? 'El correo de acceso no se puede cambiar desde esta pantalla.'
-              : 'Se usará para iniciar sesión.',
+          help:
+              _isEditing
+                  ? 'El correo de acceso no se puede cambiar desde esta pantalla.'
+                  : 'Se usará para iniciar sesión.',
           child: TextFormField(
             controller: detail,
             onChanged: (_) => setState(() {}),
             readOnly: _isEditing,
             keyboardType: TextInputType.emailAddress,
             decoration: const InputDecoration(hintText: 'usuario@rancho.mx'),
+            validator: (value) => validateEmailAddress(value, required: true),
           ),
         ),
         if (!_isEditing) ...[
-        const SizedBox(height: 20),
-        FieldBlock(
-          label: 'Contraseña temporal',
-          help: 'Mínimo 6 caracteres; el usuario podrá cambiarla después.',
-          child: TextFormField(
-            controller: password,
-            onChanged: (_) => setState(() {}),
-            obscureText: true,
-            decoration: const InputDecoration(
-              hintText: 'Contraseña temporal',
+          const SizedBox(height: 20),
+          FieldBlock(
+            label: 'Contraseña temporal',
+            help: 'Mínimo 6 caracteres; el usuario podrá cambiarla después.',
+            child: TextFormField(
+              controller: password,
+              onChanged: (_) => setState(() {}),
+              obscureText: true,
+              decoration: const InputDecoration(
+                hintText: 'Contraseña temporal',
+              ),
+              validator:
+                  (value) =>
+                      (value ?? '').length < 6
+                          ? 'Usa al menos 6 caracteres.'
+                          : null,
             ),
           ),
-        ),
         ],
         const SizedBox(height: 20),
         FieldBlock(
@@ -452,9 +558,18 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
           child: DropdownButtonFormField<UserRole>(
             initialValue: role,
             items: const [
-              DropdownMenuItem(value: UserRole.admin, child: Text('Administrador · 19 permisos')),
-              DropdownMenuItem(value: UserRole.capturista, child: Text('Capturista · 4 permisos')),
-              DropdownMenuItem(value: UserRole.contador, child: Text('Contador · Finanzas')),
+              DropdownMenuItem(
+                value: UserRole.admin,
+                child: Text('Administrador · 19 permisos'),
+              ),
+              DropdownMenuItem(
+                value: UserRole.capturista,
+                child: Text('Capturista · 4 permisos'),
+              ),
+              DropdownMenuItem(
+                value: UserRole.contador,
+                child: Text('Contador · Finanzas'),
+              ),
             ],
             onChanged: (value) => setState(() => role = value!),
           ),
@@ -465,7 +580,11 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
           runSpacing: 6,
           children: [
             for (final permission in _permissionsForRole(role))
-              StatusPill(permission, AppColors.green, icon: Icons.check_rounded),
+              StatusPill(
+                permission,
+                AppColors.green,
+                icon: Icons.check_rounded,
+              ),
           ],
         ),
       ];
@@ -496,6 +615,13 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
           controller: rfc,
           maxLength: 13,
           decoration: const InputDecoration(hintText: 'RFC'),
+          validator: (value) {
+            final valueText = (value ?? '').trim().toUpperCase();
+            if (valueText.isEmpty) return null;
+            return RegExp(r'^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$').hasMatch(valueText)
+                ? null
+                : 'Escribe un RFC válido de 12 o 13 caracteres.';
+          },
         ),
       ),
       const SizedBox(height: 20),
@@ -508,7 +634,10 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
               child: TextFormField(
                 controller: phone,
                 keyboardType: TextInputType.phone,
-                decoration: const InputDecoration(hintText: '951 555 0142'),
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                maxLength: 10,
+                decoration: const InputDecoration(hintText: '9515550142'),
+                validator: validatePhoneNumber,
               ),
             ),
           ),
@@ -520,7 +649,10 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
               child: TextFormField(
                 controller: email,
                 keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(hintText: 'correo@empresa.mx'),
+                decoration: const InputDecoration(
+                  hintText: 'correo@empresa.mx',
+                ),
+                validator: validateEmailAddress,
               ),
             ),
           ),
@@ -534,10 +666,22 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
           child: DropdownButtonFormField<String>(
             initialValue: clientType,
             items: const [
-              DropdownMenuItem(value: 'MERCADO_MAYOREO', child: Text('Mercado mayoreo')),
-              DropdownMenuItem(value: 'DISTRIBUIDOR', child: Text('Distribuidor')),
-              DropdownMenuItem(value: 'SUPERMERCADO', child: Text('Supermercado')),
-              DropdownMenuItem(value: 'RESTAURANTE', child: Text('Restaurante')),
+              DropdownMenuItem(
+                value: 'MERCADO_MAYOREO',
+                child: Text('Mercado mayoreo'),
+              ),
+              DropdownMenuItem(
+                value: 'DISTRIBUIDOR',
+                child: Text('Distribuidor'),
+              ),
+              DropdownMenuItem(
+                value: 'SUPERMERCADO',
+                child: Text('Supermercado'),
+              ),
+              DropdownMenuItem(
+                value: 'RESTAURANTE',
+                child: Text('Restaurante'),
+              ),
               DropdownMenuItem(value: 'EXPORTADOR', child: Text('Exportador')),
               DropdownMenuItem(value: 'MENUDEO', child: Text('Menudeo')),
               DropdownMenuItem(value: 'OTRO', child: Text('Otro')),
@@ -571,21 +715,21 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
     return switch (value) {
       UserRole.admin => AppStore.permissions,
       UserRole.capturista => const [
-          'actividad:crear',
-          'gasto:crear',
-          'cosecha:crear',
-          'merma:crear',
-        ],
+        'actividad:crear',
+        'gasto:crear',
+        'cosecha:crear',
+        'merma:crear',
+      ],
       UserRole.contador => const [
-          'tercero:administrar',
-          'venta:ver',
-          'venta:crear',
-          'venta:cancelar',
-          'cobro:ver',
-          'cobro:crear',
-          'reporte:ver',
-          'reporte:exportar',
-        ],
+        'tercero:administrar',
+        'venta:ver',
+        'venta:crear',
+        'venta:cancelar',
+        'cobro:ver',
+        'cobro:crear',
+        'reporte:ver',
+        'reporte:exportar',
+      ],
     };
   }
 
@@ -642,10 +786,7 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
                 body: body,
               );
             } else {
-              await store.createResource(
-                'predios',
-                body: body,
-              );
+              await store.createResource('predios', body: body);
             }
           } else {
             store.addProperty(
@@ -670,13 +811,13 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
             );
             final soil = soilRow.isEmpty ? null : soilRow.first;
             final body = {
-                'predioId': _numericId(property.id, 'predio'),
-                'nombre': name.text.trim(),
-                'superficie': _areaValue!,
-                if (soil != null)
-                  'tipoSueloId': _numericId('${soil['id']}', 'tipo de suelo'),
-                ..._coordinatesPayload(),
-              };
+              'predioId': _numericId(property.id, 'predio'),
+              'nombre': name.text.trim(),
+              'superficie': _areaValue!,
+              if (soil != null)
+                'tipoSueloId': _numericId('${soil['id']}', 'tipo de suelo'),
+              ..._coordinatesPayload(),
+            };
             if (_isEditing) {
               await store.updateResource(
                 'parcelas/${widget.recordId}',
@@ -700,31 +841,32 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
           break;
         case 'user':
           if (store.isAuthenticated) {
-            final body = _isEditing
-                ? {
-                    'nombre': name.text.trim(),
-                    'apellido': lastName.text.trim(),
-                    'rolCodigo': switch (role) {
-                      UserRole.admin => 'ADMIN',
-                      UserRole.capturista => 'CAPTURISTA',
-                      UserRole.contador => 'CONTADOR',
-                    },
-                    if (phone.text.trim().isNotEmpty)
-                      'telefono': phone.text.trim(),
-                  }
-                : {
-                'nombre': name.text.trim(),
-                'apellido': lastName.text.trim(),
-                'correo': detail.text.trim(),
-                'contrasena': password.text,
-                'rolCodigo': switch (role) {
-                  UserRole.admin => 'ADMIN',
-                  UserRole.capturista => 'CAPTURISTA',
-                  UserRole.contador => 'CONTADOR',
-                },
-                if (phone.text.trim().isNotEmpty)
-                  'telefono': phone.text.trim(),
-              };
+            final body =
+                _isEditing
+                    ? {
+                      'nombre': name.text.trim(),
+                      'apellido': lastName.text.trim(),
+                      'rolCodigo': switch (role) {
+                        UserRole.admin => 'ADMIN',
+                        UserRole.capturista => 'CAPTURISTA',
+                        UserRole.contador => 'CONTADOR',
+                      },
+                      if (phone.text.trim().isNotEmpty)
+                        'telefono': phone.text.trim(),
+                    }
+                    : {
+                      'nombre': name.text.trim(),
+                      'apellido': lastName.text.trim(),
+                      'correo': detail.text.trim(),
+                      'contrasena': password.text,
+                      'rolCodigo': switch (role) {
+                        UserRole.admin => 'ADMIN',
+                        UserRole.capturista => 'CAPTURISTA',
+                        UserRole.contador => 'CONTADOR',
+                      },
+                      if (phone.text.trim().isNotEmpty)
+                        'telefono': phone.text.trim(),
+                    };
             if (_isEditing) {
               await store.updateResource(
                 'usuarios/${widget.recordId}',
@@ -735,21 +877,23 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
             }
           } else {
             store.addUser(
-              AppUser(name: '${name.text.trim()} ${lastName.text.trim()}', email: detail.text.trim(), role: role),
+              AppUser(
+                name: '${name.text.trim()} ${lastName.text.trim()}',
+                email: detail.text.trim(),
+                role: role,
+              ),
             );
           }
           break;
         case 'client':
           if (store.isAuthenticated) {
             final body = {
-                'nombre': name.text.trim(),
-                'tipo': clientType,
-                if (rfc.text.trim().isNotEmpty) 'rfc': rfc.text.trim(),
-                if (phone.text.trim().isNotEmpty)
-                  'telefono': phone.text.trim(),
-                if (email.text.trim().isNotEmpty)
-                  'correo': email.text.trim(),
-              };
+              'nombre': name.text.trim(),
+              'tipo': clientType,
+              if (rfc.text.trim().isNotEmpty) 'rfc': rfc.text.trim(),
+              if (phone.text.trim().isNotEmpty) 'telefono': phone.text.trim(),
+              if (email.text.trim().isNotEmpty) 'correo': email.text.trim(),
+            };
             if (_isEditing) {
               await store.updateResource(
                 'clientes/${widget.recordId}',
@@ -776,15 +920,13 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
         case 'supplier':
           if (store.isAuthenticated) {
             final body = {
-                'nombre': name.text.trim(),
-                if (rfc.text.trim().isNotEmpty) 'rfc': rfc.text.trim(),
-                if (phone.text.trim().isNotEmpty)
-                  'telefono': phone.text.trim(),
-                if (email.text.trim().isNotEmpty)
-                  'correo': email.text.trim(),
-                if (address.text.trim().isNotEmpty)
-                  'direccion': address.text.trim(),
-              };
+              'nombre': name.text.trim(),
+              if (rfc.text.trim().isNotEmpty) 'rfc': rfc.text.trim(),
+              if (phone.text.trim().isNotEmpty) 'telefono': phone.text.trim(),
+              if (email.text.trim().isNotEmpty) 'correo': email.text.trim(),
+              if (address.text.trim().isNotEmpty)
+                'direccion': address.text.trim(),
+            };
             if (_isEditing) {
               await store.updateResource(
                 'proveedores/${widget.recordId}',
@@ -810,7 +952,9 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
           }
           break;
         default:
-          throw const ApiException('Este catálogo no se puede guardar desde aquí.');
+          throw const ApiException(
+            'Este catálogo no se puede guardar desde aquí.',
+          );
       }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -823,17 +967,17 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
                         : 'Registro guardado en el servidor.'
                     : 'Se guardó, pero no se pudo actualizar la información: ${store.dataError}'
                 : _isEditing
-                    ? 'Cambios guardados.'
-                    : 'Registro guardado en memoria.',
+                ? 'Cambios guardados.'
+                : 'Registro guardado en memoria.',
           ),
         ),
       );
       context.pop();
     } on ApiException catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error.message)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
       }
     } finally {
       if (mounted) setState(() => isSaving = false);

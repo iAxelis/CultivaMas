@@ -1,5 +1,6 @@
 import {
   Controller,
+  Delete,
   Get,
   Post,
   Body,
@@ -143,5 +144,29 @@ export class CatalogosController {
     @Body() dto: CreateCategoriaGastoDto,
   ): Promise<CategoriaGastoResponseDto> {
     return this.catalogosService.crearCategoriaGasto(empresaId, dto);
+  }
+
+  @RequirePermisos('catalogo:administrar')
+  @Delete('categorias-gasto/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Eliminar una categoría de gasto personalizada sin movimientos',
+    description:
+      'Solo permite eliminar categorías personalizadas de la empresa que no tengan gastos asociados ni subcategorías.',
+  })
+  @ApiResponse({ status: 204, description: 'Categoría eliminada' })
+  @ApiResponse({
+    status: 404,
+    description: 'Categoría no encontrada o no pertenece a la empresa',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'La categoría tiene gastos asociados o subcategorías',
+  })
+  async eliminarCategoriaGasto(
+    @CurrentUser('empresaId') empresaId: number,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<void> {
+    await this.catalogosService.eliminarCategoriaGasto(empresaId, id);
   }
 }

@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/theme.dart';
+import '../../core/validation.dart';
 import '../../core/widgets.dart';
 import '../../data/api_client.dart';
 import '../../data/backend_repository.dart';
@@ -31,11 +32,11 @@ class _DataFormScreenState extends State<DataFormScreen> {
   final formKey = GlobalKey<FormState>();
   final quantityController = TextEditingController();
   final unitCostController = TextEditingController();
-  final taxController = TextEditingController(text: '0');
+  final taxController = TextEditingController();
   final totalController = TextEditingController();
   final priceController = TextEditingController();
-  final discountController = TextEditingController(text: '0');
-  final saleTaxController = TextEditingController(text: '0');
+  final discountController = TextEditingController();
+  final saleTaxController = TextEditingController();
   final cycleNameController = TextEditingController();
   final cycleDateController = TextEditingController();
   final cycleAreaController = TextEditingController();
@@ -74,6 +75,12 @@ class _DataFormScreenState extends State<DataFormScreen> {
   void initState() {
     super.initState();
     cycleId = widget.cycleId;
+    final today = DateTime.now();
+    dateController.text = formatDateInput(today);
+    cycleDateController.text = formatDateInput(today);
+    dueDateController.text = formatDateInput(
+      today.add(const Duration(days: 15)),
+    );
     quantityController.addListener(_recalculate);
     unitCostController.addListener(_recalculate);
     taxController.addListener(_recalculate);
@@ -102,7 +109,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
   }
 
   double _number(TextEditingController controller) {
-    return double.tryParse(controller.text.replaceAll(',', '.')) ?? 0;
+    return parseDecimal(controller.text) ?? 0;
   }
 
   double get expectedTotal {
@@ -209,6 +216,55 @@ class _DataFormScreenState extends State<DataFormScreen> {
     'industria' || 'industrial' => 'INDUSTRIAL',
     _ => throw const ApiException('Selecciona una calidad válida.'),
   };
+
+  String? _positiveNumberError(String? value, String label) {
+    final number = parseDecimal(value ?? '');
+    if (number == null) return '$label es obligatorio y debe ser numérico.';
+    if (number <= 0) return '$label debe ser mayor que cero.';
+    return null;
+  }
+
+  String? _optionalNonNegativeNumberError(String? value, String label) {
+    if ((value ?? '').trim().isEmpty) return null;
+    final number = parseDecimal(value!);
+    if (number == null) return '$label debe ser un número válido.';
+    if (number < 0) return '$label no puede ser negativo.';
+    return null;
+  }
+
+  Widget _dateField({
+    required TextEditingController controller,
+    required String label,
+    required String help,
+    required String validationLabel,
+  }) {
+    return FieldBlock(
+      label: label,
+      help: help,
+      child: DatePickerField(controller: controller, label: validationLabel),
+    );
+  }
+
+  Widget _fieldPair(Widget first, Widget second) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 460) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [first, const SizedBox(height: 16), second],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: first),
+            const SizedBox(width: 12),
+            Expanded(child: second),
+          ],
+        );
+      },
+    );
+  }
 
   void _recalculate() {
     if (!mounted) return;
@@ -325,13 +381,12 @@ class _DataFormScreenState extends State<DataFormScreen> {
         widget.type != 'payment' &&
         (store.cycle(cycleId!).status == CycleStatus.finalizado ||
             store.cycle(cycleId!).status == CycleStatus.cerrado);
-    final valid = _canSave(store) && !locked && !isSaving;
     return Scaffold(
       appBar: AppBar(title: Text(title)),
       bottomNavigationBar: SafeArea(
         minimum: const EdgeInsets.all(16),
         child: FilledButton.icon(
-          onPressed: valid ? () => _save(store) : null,
+          onPressed: locked || isSaving ? null : () => _save(store),
           icon: const Icon(Icons.check_rounded),
           label: Text(isSaving ? 'Guardando…' : 'Guardar'),
         ),
@@ -389,7 +444,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
             .expand((property) => property.parcels)
             .where((item) => item.id == selectedParcel),
       );
-      final plantedArea = double.tryParse(cycleAreaController.text) ?? 0;
+      final plantedArea = parseDecimal(cycleAreaController.text) ?? 0;
       return parcel != null &&
           cycleDateController.text.isNotEmpty &&
           plantedArea > 0 &&
@@ -409,6 +464,97 @@ class _DataFormScreenState extends State<DataFormScreen> {
               _number(quantityController) >= .01);
     }
     return cycleId != null;
+  }
+
+  String? _validationMessage(AppStore store) {
+    if (widget.type != 'cycle' && widget.type != 'payment' && cycleId == null) {
+      return 'Selecciona un ciclo para continuar.';
+    }
+    switch (widget.type) {
+      case 'expense':
+        if (expenseCategory.isEmpty) {
+          return 'Selecciona una categoría de gasto.';
+        }
+        if (_number(quantityController) <= 0) {
+          return 'La cantidad debe ser mayor que cero.';
+        }
+        if (_number(unitCostController) <= 0) {
+          return 'El costo unitario debe ser mayor que cero.';
+        }
+        if (_number(taxController) < 0) {
+          return 'El impuesto no puede ser negativo.';
+        }
+        if (!totalMatches) {
+          return 'El total debe coincidir con cantidad × costo unitario + impuesto.';
+        }
+        break;
+      case 'sale':
+        if (saleClient.isEmpty) return 'Selecciona un cliente activo.';
+        if (_number(quantityController) <= 0) {
+          return 'La cantidad debe ser mayor que cero.';
+        }
+        if (cycleId != null &&
+            saleConvertedKg > store.availableKg(store.cycle(cycleId!))) {
+          return 'La cantidad supera el producto disponible.';
+        }
+        if (_number(priceController) <= 0) {
+          return 'El precio debe ser mayor que cero.';
+        }
+        if (_number(discountController) < 0 ||
+            _number(discountController) > saleSubtotal) {
+          return 'El descuento debe estar entre cero y el subtotal.';
+        }
+        if (_number(saleTaxController) < 0) {
+          return 'El impuesto no puede ser negativo.';
+        }
+        if (saleTotal <= 0) {
+          return 'El total de la venta debe ser mayor que cero.';
+        }
+        break;
+      case 'harvest':
+      case 'loss':
+        if (_number(quantityController) <= 0) {
+          return 'La cantidad debe ser mayor que cero.';
+        }
+        break;
+      case 'payment':
+        final matches = store.sales.where((item) => item.id == widget.saleId);
+        if (matches.isEmpty) return 'No se encontró la venta del cobro.';
+        final sale = matches.first;
+        if (_number(totalController) <= 0) {
+          return 'El importe del cobro debe ser mayor que cero.';
+        }
+        if (_number(totalController) > sale.total - sale.paid) {
+          return 'El cobro no puede superar el saldo pendiente.';
+        }
+        break;
+      case 'cycle':
+        final parcel = _firstOrNull(
+          store.properties
+              .expand((property) => property.parcels)
+              .where((item) => item.id == selectedParcel),
+        );
+        if (parcel == null) return 'Selecciona una parcela disponible.';
+        final area = parseDecimal(cycleAreaController.text) ?? 0;
+        if (area <= 0) return 'La superficie sembrada debe ser mayor que cero.';
+        if (area > parcel.area) {
+          return 'La superficie sembrada supera la parcela seleccionada.';
+        }
+        if (_number(cycleGoalController) <= 0) {
+          return 'La meta de producción debe ser mayor que cero.';
+        }
+        break;
+      case 'activity':
+        if (quantityController.text.trim().isNotEmpty &&
+            _number(quantityController) < .01) {
+          return 'Las horas trabajadas deben ser mayores que cero.';
+        }
+        break;
+      case 'close':
+        if (cycleId == null) return 'Selecciona el ciclo que vas a finalizar.';
+        break;
+    }
+    return null;
   }
 
   List<Widget> _fields(AppStore store) {
@@ -512,6 +658,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
       label: 'Ciclo',
       help: 'El registro quedará ligado a este ciclo.',
       child: DropdownButtonFormField<String>(
+        isExpanded: true,
         initialValue: cycleId,
         items: [
           for (final cycle in store.cycles.where(
@@ -525,6 +672,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
             ),
         ],
         onChanged: (value) => setState(() => cycleId = value),
+        validator: (value) => value == null ? 'Selecciona un ciclo.' : null,
       ),
     );
   }
@@ -553,6 +701,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Actividad',
         help: 'Selecciona la labor realizada.',
         child: DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue:
               activityNames.contains(activityType) ? activityType : null,
           items: [
@@ -562,6 +711,8 @@ class _DataFormScreenState extends State<DataFormScreen> {
           onChanged: (value) {
             if (value != null) setState(() => activityType = value);
           },
+          validator:
+              (value) => value == null ? 'Selecciona una actividad.' : null,
         ),
       ),
       const SizedBox(height: 20),
@@ -569,6 +720,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Responsable',
         help: 'Usuario asignado, opcional.',
         child: DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue:
               responsibleNames.contains(responsible) ? responsible : null,
           items: [
@@ -581,16 +733,11 @@ class _DataFormScreenState extends State<DataFormScreen> {
         ),
       ),
       const SizedBox(height: 20),
-      FieldBlock(
+      _dateField(
+        controller: dateController,
         label: 'Fecha',
         help: 'Fecha de ejecución de la labor.',
-        child: TextFormField(
-          controller: dateController,
-          decoration: const InputDecoration(
-            hintText: 'dd/mm/aaaa',
-            prefixIcon: Icon(Icons.calendar_today_outlined),
-          ),
-        ),
+        validationLabel: 'la fecha de ejecución',
       ),
       const SizedBox(height: 20),
       FieldBlock(
@@ -598,7 +745,11 @@ class _DataFormScreenState extends State<DataFormScreen> {
         help: 'Opcional; si se captura, debe ser mayor que cero.',
         child: TextFormField(
           controller: quantityController,
-          keyboardType: TextInputType.number,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          validator: (value) {
+            if ((value ?? '').trim().isEmpty) return null;
+            return _positiveNumberError(value, 'Las horas trabajadas');
+          },
           decoration: const InputDecoration(suffixText: 'h', hintText: '0'),
         ),
       ),
@@ -663,6 +814,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Categoría',
         help: 'Se usa para el desglose de costos.',
         child: DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue:
               categories.contains(expenseCategory) ? expenseCategory : null,
           items: [
@@ -672,6 +824,9 @@ class _DataFormScreenState extends State<DataFormScreen> {
           onChanged: (value) {
             if (value != null) setState(() => expenseCategory = value);
           },
+          validator:
+              (value) =>
+                  value == null ? 'Selecciona una categoría de gasto.' : null,
         ),
       ),
       const SizedBox(height: 20),
@@ -680,6 +835,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         help:
             'CAPTURISTA puede seleccionar proveedores activos sin abrir el catálogo.',
         child: DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue:
               activeSuppliers.any((item) => item.id == supplierId)
                   ? supplierId
@@ -698,6 +854,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Actividad vinculada',
         help: 'Opcional; debe pertenecer al mismo ciclo.',
         child: DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue: linkedActivity,
           items: [
             const DropdownMenuItem(
@@ -720,6 +877,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Unidad de medida',
         help: 'Opcional.',
         child: DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue: expenseUnits.contains(expenseUnit) ? expenseUnit : null,
           items: [
             for (final item in expenseUnits)
@@ -728,19 +886,17 @@ class _DataFormScreenState extends State<DataFormScreen> {
           onChanged: (value) {
             if (value != null) setState(() => expenseUnit = value);
           },
+          validator:
+              (value) =>
+                  value == null ? 'Selecciona una unidad de medida.' : null,
         ),
       ),
       const SizedBox(height: 20),
-      FieldBlock(
+      _dateField(
+        controller: dateController,
         label: 'Fecha',
         help: 'Fecha del egreso.',
-        child: TextFormField(
-          controller: dateController,
-          decoration: const InputDecoration(
-            hintText: 'dd/mm/aaaa',
-            prefixIcon: Icon(Icons.calendar_today_outlined),
-          ),
-        ),
+        validationLabel: 'la fecha del egreso',
       ),
       const SizedBox(height: 20),
       FieldBlock(
@@ -753,40 +909,31 @@ class _DataFormScreenState extends State<DataFormScreen> {
         ),
       ),
       const SizedBox(height: 20),
-      Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: FieldBlock(
-              label: 'Cantidad',
-              help: 'Unidades',
-              child: TextFormField(
-                controller: quantityController,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(hintText: '10'),
-              ),
+      _fieldPair(
+        FieldBlock(
+          label: 'Cantidad',
+          help: 'Unidades',
+          child: TextFormField(
+            controller: quantityController,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            validator: (value) => _positiveNumberError(value, 'La cantidad'),
+            decoration: const InputDecoration(hintText: '10'),
+          ),
+        ),
+        FieldBlock(
+          label: 'Costo unitario',
+          help: 'Antes de impuesto',
+          child: TextFormField(
+            controller: unitCostController,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            validator:
+                (value) => _positiveNumberError(value, 'El costo unitario'),
+            decoration: const InputDecoration(
+              prefixText: '\$ ',
+              hintText: '800',
             ),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: FieldBlock(
-              label: 'Costo unitario',
-              help: 'Antes de impuesto',
-              child: TextFormField(
-                controller: unitCostController,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(
-                  prefixText: '\$ ',
-                  hintText: '800',
-                ),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
       const SizedBox(height: 20),
       FieldBlock(
@@ -795,6 +942,8 @@ class _DataFormScreenState extends State<DataFormScreen> {
         child: TextFormField(
           controller: taxController,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          validator:
+              (value) => _optionalNonNegativeNumberError(value, 'El impuesto'),
           decoration: const InputDecoration(prefixText: '\$ '),
         ),
       ),
@@ -808,6 +957,14 @@ class _DataFormScreenState extends State<DataFormScreen> {
         child: TextFormField(
           controller: totalController,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          validator: (value) {
+            final error = _optionalNonNegativeNumberError(value, 'El total');
+            if (error != null) return error;
+            if (value != null && value.trim().isNotEmpty && !totalMatches) {
+              return 'Debe coincidir con el total calculado.';
+            }
+            return null;
+          },
           decoration: InputDecoration(
             prefixText: '\$ ',
             errorText: totalMatches ? null : 'Revisa el total',
@@ -830,16 +987,11 @@ class _DataFormScreenState extends State<DataFormScreen> {
     return [
       _cycleSelector(store),
       const SizedBox(height: 20),
-      FieldBlock(
+      _dateField(
+        controller: dateController,
         label: 'Fecha',
         help: 'Fecha del evento de recolección.',
-        child: TextFormField(
-          controller: dateController,
-          decoration: const InputDecoration(
-            hintText: 'dd/mm/aaaa',
-            prefixIcon: Icon(Icons.calendar_today_outlined),
-          ),
-        ),
+        validationLabel: 'la fecha de cosecha',
       ),
       const SizedBox(height: 20),
       FieldBlock(
@@ -854,12 +1006,16 @@ class _DataFormScreenState extends State<DataFormScreen> {
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
+                validator:
+                    (value) =>
+                        _positiveNumberError(value, 'La cantidad cosechada'),
                 decoration: const InputDecoration(hintText: '0'),
               ),
             ),
             const SizedBox(width: 8),
             Expanded(
               child: DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue: unit,
                 items: const [
                   DropdownMenuItem(value: 'kg', child: Text('kg')),
@@ -867,6 +1023,8 @@ class _DataFormScreenState extends State<DataFormScreen> {
                   DropdownMenuItem(value: 'caja', child: Text('caja')),
                 ],
                 onChanged: (value) => setState(() => unit = value!),
+                validator:
+                    (value) => value == null ? 'Selecciona una unidad.' : null,
               ),
             ),
           ],
@@ -885,6 +1043,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Calidad',
         help: 'Se usará para disponibilidad y ventas.',
         child: DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue: quality,
           items: const [
             DropdownMenuItem(value: 'Extra', child: Text('Extra')),
@@ -940,6 +1099,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Etapa de la merma',
         help: 'Define si la merma reduce o no el inventario cosechado.',
         child: DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue: stage,
           items: const [
             DropdownMenuItem(value: 'CAMPO', child: Text('Campo')),
@@ -969,6 +1129,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Cosecha de origen',
         help: 'Opcional, debe pertenecer al mismo ciclo.',
         child: DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue: lossOrigin,
           items: [
             const DropdownMenuItem(
@@ -989,6 +1150,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Unidad de medida',
         help: 'Obligatoria.',
         child: DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue: unit,
           items: const [
             DropdownMenuItem(value: 'kg', child: Text('kg')),
@@ -996,19 +1158,15 @@ class _DataFormScreenState extends State<DataFormScreen> {
             DropdownMenuItem(value: 'caja', child: Text('caja 20 kg')),
           ],
           onChanged: (value) => setState(() => unit = value!),
+          validator: (value) => value == null ? 'Selecciona una unidad.' : null,
         ),
       ),
       const SizedBox(height: 20),
-      FieldBlock(
+      _dateField(
+        controller: dateController,
         label: 'Fecha',
         help: 'Fecha de la merma.',
-        child: TextFormField(
-          controller: dateController,
-          decoration: const InputDecoration(
-            hintText: 'dd/mm/aaaa',
-            prefixIcon: Icon(Icons.calendar_today_outlined),
-          ),
-        ),
+        validationLabel: 'la fecha de la merma',
       ),
       const SizedBox(height: 20),
       FieldBlock(
@@ -1017,6 +1175,8 @@ class _DataFormScreenState extends State<DataFormScreen> {
         child: TextFormField(
           controller: quantityController,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          validator:
+              (value) => _positiveNumberError(value, 'La cantidad de merma'),
           decoration: const InputDecoration(suffixText: 'kg', hintText: '0'),
         ),
       ),
@@ -1035,6 +1195,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Causa',
         help: 'Ayuda a detectar patrones de pérdida.',
         child: DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue:
               lossReasonNames.contains(lossReason) ? lossReason : null,
           items: [
@@ -1044,6 +1205,9 @@ class _DataFormScreenState extends State<DataFormScreen> {
           onChanged: (value) {
             if (value != null) setState(() => lossReason = value);
           },
+          validator:
+              (value) =>
+                  value == null ? 'Selecciona una causa de merma.' : null,
         ),
       ),
     ];
@@ -1101,6 +1265,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Cliente',
         help: 'Selecciona quién recibe la venta.',
         child: DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue:
               activeClients.any((client) => client.name == saleClient)
                   ? saleClient
@@ -1112,85 +1277,76 @@ class _DataFormScreenState extends State<DataFormScreen> {
           onChanged: (value) {
             if (value != null) setState(() => saleClient = value);
           },
+          validator:
+              (value) => value == null ? 'Selecciona un cliente activo.' : null,
         ),
       ),
       const SizedBox(height: 20),
-      FieldBlock(
+      _dateField(
+        controller: dateController,
         label: 'Fecha',
         help: 'Fecha de la operación comercial.',
-        child: TextFormField(
-          controller: dateController,
-          decoration: const InputDecoration(
-            hintText: 'dd/mm/aaaa',
-            prefixIcon: Icon(Icons.calendar_today_outlined),
+        validationLabel: 'la fecha de la venta',
+      ),
+      const SizedBox(height: 20),
+      _fieldPair(
+        FieldBlock(
+          label: 'Número de factura',
+          help: 'Opcional.',
+          child: TextFormField(
+            controller: invoiceController,
+            decoration: const InputDecoration(hintText: 'FAC-1043'),
           ),
+        ),
+        _dateField(
+          controller: dueDateController,
+          label: 'Fecha límite',
+          help: 'Fecha prevista de pago.',
+          validationLabel: 'la fecha límite de pago',
         ),
       ),
       const SizedBox(height: 20),
-      Row(
-        children: [
-          Expanded(
-            child: FieldBlock(
-              label: 'Número de factura',
-              help: 'Opcional.',
-              child: TextFormField(
-                controller: invoiceController,
-                decoration: const InputDecoration(hintText: 'FAC-1043'),
-              ),
+      _fieldPair(
+        FieldBlock(
+          label: 'Descuento',
+          help: 'No puede superar el subtotal.',
+          child: TextFormField(
+            controller: discountController,
+            onChanged: (_) => setState(() {}),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            validator: (value) {
+              final error = _optionalNonNegativeNumberError(
+                value,
+                'El descuento',
+              );
+              if (error != null) return error;
+              if ((parseDecimal(value ?? '') ?? 0) > saleSubtotal) {
+                return 'No puede superar el subtotal.';
+              }
+              return null;
+            },
+            decoration: const InputDecoration(
+              prefixText: '\$ ',
+              hintText: '0.00',
             ),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: FieldBlock(
-              label: 'Fecha límite',
-              help: 'Opcional.',
-              child: TextFormField(
-                controller: dueDateController,
-                decoration: const InputDecoration(hintText: 'dd/mm/aaaa'),
-              ),
+        ),
+        FieldBlock(
+          label: 'Impuesto',
+          help: 'Impuesto total trasladado.',
+          child: TextFormField(
+            controller: saleTaxController,
+            onChanged: (_) => setState(() {}),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            validator:
+                (value) =>
+                    _optionalNonNegativeNumberError(value, 'El impuesto'),
+            decoration: const InputDecoration(
+              prefixText: '\$ ',
+              hintText: '0.00',
             ),
           ),
-        ],
-      ),
-      const SizedBox(height: 20),
-      Row(
-        children: [
-          Expanded(
-            child: FieldBlock(
-              label: 'Descuento',
-              help: 'No puede superar el subtotal.',
-              child: TextFormField(
-                controller: discountController,
-                onChanged: (_) => setState(() {}),
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(
-                  prefixText: '\$ ',
-                  hintText: '0.00',
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: FieldBlock(
-              label: 'Impuesto',
-              help: 'Impuesto total trasladado.',
-              child: TextFormField(
-                controller: saleTaxController,
-                onChanged: (_) => setState(() {}),
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(
-                  prefixText: '\$ ',
-                  hintText: '0.00',
-                ),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
       const SizedBox(height: 20),
       Text('RENGLÓN 1', style: Theme.of(context).textTheme.labelMedium),
@@ -1201,6 +1357,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
           child: Column(
             children: [
               DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue: saleOrigin,
                 decoration: const InputDecoration(
                   labelText: 'Cosecha de origen',
@@ -1222,6 +1379,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue: saleUnit,
                 decoration: const InputDecoration(labelText: 'Unidad'),
                 items: const [
@@ -1232,9 +1390,12 @@ class _DataFormScreenState extends State<DataFormScreen> {
                 onChanged: (value) {
                   if (value != null) setState(() => saleUnit = value);
                 },
+                validator:
+                    (value) => value == null ? 'Selecciona una unidad.' : null,
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue: quality,
                 decoration: const InputDecoration(labelText: 'Calidad'),
                 items: const [
@@ -1248,39 +1409,40 @@ class _DataFormScreenState extends State<DataFormScreen> {
                   ),
                 ],
                 onChanged: (value) => setState(() => quality = value!),
+                validator:
+                    (value) => value == null ? 'Selecciona una calidad.' : null,
               ),
               const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: quantityController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: InputDecoration(
-                        labelText: 'Cantidad',
-                        suffixText:
-                            saleUnit == 'caja' ? 'caja 20 kg' : saleUnit,
-                        errorText: exceeded ? 'Supera el disponible' : null,
-                      ),
-                    ),
+              _fieldPair(
+                TextFormField(
+                  controller: quantityController,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextFormField(
-                      controller: priceController,
-                      onChanged: (_) => setState(() {}),
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: InputDecoration(
-                        labelText: 'Precio / $saleUnit',
-                        prefixText: '\$ ',
-                      ),
-                    ),
+                  validator: (value) {
+                    final error = _positiveNumberError(value, 'La cantidad');
+                    if (error != null) return error;
+                    if (exceeded) return 'Supera el producto disponible.';
+                    return null;
+                  },
+                  decoration: InputDecoration(
+                    labelText: 'Cantidad',
+                    suffixText: saleUnit == 'caja' ? 'caja 20 kg' : saleUnit,
                   ),
-                ],
+                ),
+                TextFormField(
+                  controller: priceController,
+                  onChanged: (_) => setState(() {}),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  validator:
+                      (value) => _positiveNumberError(value, 'El precio'),
+                  decoration: InputDecoration(
+                    labelText: 'Precio / $saleUnit',
+                    prefixText: '\$ ',
+                  ),
+                ),
               ),
               const SizedBox(height: 12),
               Row(
@@ -1341,16 +1503,11 @@ class _DataFormScreenState extends State<DataFormScreen> {
         ),
       ),
       const SizedBox(height: 20),
-      FieldBlock(
+      _dateField(
+        controller: dateController,
         label: 'Fecha',
         help: 'Fecha de recepción del pago.',
-        child: TextFormField(
-          controller: dateController,
-          decoration: const InputDecoration(
-            hintText: 'dd/mm/aaaa',
-            prefixIcon: Icon(Icons.calendar_today_outlined),
-          ),
-        ),
+        validationLabel: 'la fecha del cobro',
       ),
       const SizedBox(height: 20),
       FieldBlock(
@@ -1360,6 +1517,8 @@ class _DataFormScreenState extends State<DataFormScreen> {
         child: TextFormField(
           controller: totalController,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          validator:
+              (value) => _positiveNumberError(value, 'El importe del cobro'),
           decoration: const InputDecoration(
             prefixText: '\$ ',
             hintText: '0.00',
@@ -1371,6 +1530,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Método',
         help: 'Dato informativo para conciliación.',
         child: DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue: paymentMethod,
           items: const [
             DropdownMenuItem(value: 'Efectivo', child: Text('Efectivo')),
@@ -1426,12 +1586,15 @@ class _DataFormScreenState extends State<DataFormScreen> {
         help:
             '${occupied.length} parcelas se ocultaron por tener un ciclo activo.',
         child: DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue: selectedParcel,
           items: [
             for (final parcel in available)
               DropdownMenuItem(value: parcel.id, child: Text(parcel.name)),
           ],
           onChanged: (value) => setState(() => selectedParcel = value),
+          validator:
+              (value) => value == null ? 'Selecciona una parcela.' : null,
         ),
       ),
       const SizedBox(height: 20),
@@ -1439,6 +1602,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Variedad',
         help: 'Selecciona la variedad activa del catálogo.',
         child: DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue: selectedVariety,
           items: [
             for (final variety in varieties)
@@ -1448,6 +1612,8 @@ class _DataFormScreenState extends State<DataFormScreen> {
               ),
           ],
           onChanged: (value) => setState(() => selectedVariety = value!),
+          validator:
+              (value) => value == null ? 'Selecciona una variedad.' : null,
         ),
       ),
       const SizedBox(height: 20),
@@ -1460,17 +1626,11 @@ class _DataFormScreenState extends State<DataFormScreen> {
         ),
       ),
       const SizedBox(height: 20),
-      FieldBlock(
+      _dateField(
+        controller: cycleDateController,
         label: 'Fecha de inicio',
         help: 'Primera labor, incluida preparación del suelo.',
-        child: TextFormField(
-          controller: cycleDateController,
-          onChanged: (_) => setState(() {}),
-          decoration: const InputDecoration(
-            hintText: 'dd/mm/aaaa',
-            prefixIcon: Icon(Icons.calendar_today_outlined),
-          ),
-        ),
+        validationLabel: 'la fecha de inicio',
       ),
       const SizedBox(height: 20),
       FieldBlock(
@@ -1480,12 +1640,14 @@ class _DataFormScreenState extends State<DataFormScreen> {
           controller: cycleAreaController,
           onChanged: (_) => setState(() {}),
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          validator:
+              (value) => _positiveNumberError(value, 'La superficie sembrada'),
           decoration: InputDecoration(
             suffixText: 'ha',
             hintText: '0.00',
             errorText:
                 selectedParcelArea != null &&
-                        (double.tryParse(cycleAreaController.text) ?? 0) >
+                        (parseDecimal(cycleAreaController.text) ?? 0) >
                             selectedParcelArea
                     ? 'Supera ${selectedParcelArea.toStringAsFixed(2)} ha'
                     : null,
@@ -1499,6 +1661,8 @@ class _DataFormScreenState extends State<DataFormScreen> {
         child: TextFormField(
           controller: cycleGoalController,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          validator:
+              (value) => _positiveNumberError(value, 'La meta de producción'),
           decoration: const InputDecoration(
             suffixText: 'kg',
             hintText: '12,000',
@@ -1539,6 +1703,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         label: 'Motivo de cierre',
         help: 'Quedará registrado en la auditoría.',
         child: DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue: closeReason,
           items: const [
             DropdownMenuItem(
@@ -1557,6 +1722,22 @@ class _DataFormScreenState extends State<DataFormScreen> {
 
   Future<void> _save(AppStore store) async {
     if (isSaving) return;
+    if (!formKey.currentState!.validate()) return;
+    final validationMessage = _validationMessage(store);
+    if (validationMessage != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(validationMessage)));
+      return;
+    }
+    if (!_canSave(store)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Revisa los campos marcados antes de guardar.'),
+        ),
+      );
+      return;
+    }
     setState(() => isSaving = true);
     try {
       final selectedCycleId = cycleId;
@@ -1737,7 +1918,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
                       : cycleNameController.text.trim(),
               'fechaInicio': _dateValue(cycleDateController),
               'superficieSembrada':
-                  double.parse(cycleAreaController.text).toString(),
+                  (parseDecimal(cycleAreaController.text) ?? 0).toString(),
               'metaProduccionKg': _number(cycleGoalController),
               if (detailController.text.trim().isNotEmpty)
                 'observaciones': detailController.text.trim(),
