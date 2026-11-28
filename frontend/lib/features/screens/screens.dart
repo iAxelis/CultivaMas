@@ -1902,11 +1902,6 @@ class CaptureHomeScreen extends StatelessWidget {
               const SizedBox(height: 12),
               const SectionTitle('Últimos registros'),
               const SizedBox(height: 12),
-              Text(
-                'Edita rápidamente cualquier captura reciente sin salir de esta pantalla.',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              const SizedBox(height: 10),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
@@ -2185,6 +2180,8 @@ class _RecentRecordCard extends StatelessWidget {
                       children: [
                         Text(
                           record.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
                         const SizedBox(height: 3),
@@ -2765,13 +2762,16 @@ class CycleDetailScreen extends StatelessWidget {
             ),
           ],
         ),
-        body: TabBarView(
-          children: [
-            _CycleSummary(cycle: cycle),
-            _CycleField(cycle: cycle),
-            if (canSeeMoney) _CycleMoney(cycle: cycle),
-            _CycleHistory(cycle: cycle),
-          ],
+        body: SafeArea(
+          bottom: true,
+          child: TabBarView(
+            children: [
+              _CycleSummary(cycle: cycle),
+              _CycleField(cycle: cycle),
+              if (canSeeMoney) _CycleMoney(cycle: cycle),
+              _CycleHistory(cycle: cycle),
+            ],
+          ),
         ),
       ),
     );
@@ -3282,9 +3282,15 @@ class SaleCard extends StatelessWidget {
                       children: [
                         Text(
                           sale.client,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
-                        Text('${sale.id} · ${quantity.format(sale.kg)} kg'),
+                        Text(
+                          '${sale.id} · ${quantity.format(sale.kg)} kg',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ],
                     ),
                   ),
@@ -3337,123 +3343,130 @@ class SaleDetailScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          HeroCard(
-            eyebrow: 'Total de la venta',
-            value: money.format(sale.total),
-            subtitle: '${quantity.format(sale.kg)} kg · ${sale.client}',
-          ),
-          const SizedBox(height: 20),
-          const SectionTitle('Resumen'),
-          const SizedBox(height: 12),
-          Card(
-            child: Column(
-              children: [
-                ListTile(
-                  title: const Text('Cantidad'),
-                  trailing: Text('${quantity.format(sale.kg)} kg'),
-                ),
-                ListTile(
-                  title: const Text('Precio promedio'),
-                  trailing: Text(
-                    moneyExact.format(sale.kg == 0 ? 0 : sale.total / sale.kg),
-                  ),
-                ),
-              ],
+      body: SafeArea(
+        bottom: true,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            HeroCard(
+              eyebrow: 'Total de la venta',
+              value: money.format(sale.total),
+              subtitle: '${quantity.format(sale.kg)} kg · ${sale.client}',
             ),
-          ),
-          const SizedBox(height: 20),
-          const SectionTitle('Archivos de la venta'),
-          Card(
-            child: ListTile(
-              leading: const IconBox(Icons.attach_file_rounded),
-              title: const Text('Comprobantes y documentos'),
-              subtitle: const Text('Consultar, descargar o agregar archivos'),
-              trailing: const Icon(Icons.chevron_right_rounded),
-              onTap:
-                  () => showAttachmentsSheet(
-                    context,
-                    store,
-                    path: 'ventas/${sale.id}/adjuntos',
-                    title: 'Venta ${sale.id}',
+            const SizedBox(height: 20),
+            const SectionTitle('Resumen'),
+            const SizedBox(height: 12),
+            Card(
+              child: Column(
+                children: [
+                  ListTile(
+                    title: const Text('Cantidad'),
+                    trailing: Text('${quantity.format(sale.kg)} kg'),
                   ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          const SectionTitle('Cobros'),
-          const SizedBox(height: 12),
-          _SalePaymentHistory(
-            key: ValueKey('${sale.id}-${sale.paid}'),
-            store: store,
-            saleId: sale.id,
-          ),
-          const SizedBox(height: 20),
-          FilledButton.icon(
-            onPressed:
-                sale.paid >= sale.total
-                    ? null
-                    : () => context.push('/form/payment?sale=${sale.id}'),
-            icon: const Icon(Icons.add_rounded),
-            label: const Text('Registrar cobro'),
-          ),
-          const SizedBox(height: 12),
-          OutlinedButton.icon(
-            onPressed:
-                sale.cancelled
-                    ? null
-                    : () => showDialog<void>(
-                      context: context,
-                      builder:
-                          (dialogContext) => AlertDialog(
-                            title: const Text('Cancelar venta'),
-                            content: const Text(
-                              'La venta se conservará en la auditoría y los kg volverán a estar disponibles.',
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(dialogContext),
-                                child: const Text('Volver'),
-                              ),
-                              FilledButton(
-                                onPressed: () async {
-                                  Navigator.pop(dialogContext);
-                                  try {
-                                    await store.cancelSale(sale);
-                                    if (!context.mounted) return;
-                                    final messenger = ScaffoldMessenger.of(
-                                      context,
-                                    );
-                                    context.pop();
-                                    messenger.showSnackBar(
-                                      SnackBar(
-                                        content: Text(
-                                          store.dataError == null
-                                              ? 'Venta cancelada en el servidor.'
-                                              : 'La venta se canceló, pero no se pudo actualizar la información: ${store.dataError}',
-                                        ),
-                                      ),
-                                    );
-                                  } on ApiException catch (error) {
-                                    if (!context.mounted) return;
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text(error.message)),
-                                    );
-                                  }
-                                },
-                                child: const Text('Cancelar venta'),
-                              ),
-                            ],
-                          ),
+                  ListTile(
+                    title: const Text('Precio promedio'),
+                    trailing: Text(
+                      moneyExact.format(
+                        sale.kg == 0 ? 0 : sale.total / sale.kg,
+                      ),
                     ),
-            icon: const Icon(Icons.block_rounded, color: AppColors.red),
-            label: const Text(
-              'Cancelar venta',
-              style: TextStyle(color: AppColors.red),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+            const SizedBox(height: 20),
+            const SectionTitle('Archivos de la venta'),
+            Card(
+              child: ListTile(
+                leading: const IconBox(Icons.attach_file_rounded),
+                title: const Text('Comprobantes y documentos'),
+                subtitle: const Text('Consultar, descargar o agregar archivos'),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap:
+                    () => showAttachmentsSheet(
+                      context,
+                      store,
+                      path: 'ventas/${sale.id}/adjuntos',
+                      title: 'Venta ${sale.id}',
+                    ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            const SectionTitle('Cobros'),
+            const SizedBox(height: 12),
+            _SalePaymentHistory(
+              key: ValueKey('${sale.id}-${sale.paid}'),
+              store: store,
+              saleId: sale.id,
+            ),
+            const SizedBox(height: 20),
+            FilledButton.icon(
+              onPressed:
+                  sale.paid >= sale.total
+                      ? null
+                      : () => context.push('/form/payment?sale=${sale.id}'),
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Registrar cobro'),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed:
+                  sale.cancelled
+                      ? null
+                      : () => showDialog<void>(
+                        context: context,
+                        builder:
+                            (dialogContext) => AlertDialog(
+                              title: const Text('Cancelar venta'),
+                              content: const Text(
+                                'La venta se conservará en la auditoría y los kg volverán a estar disponibles.',
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(dialogContext),
+                                  child: const Text('Volver'),
+                                ),
+                                FilledButton(
+                                  onPressed: () async {
+                                    Navigator.pop(dialogContext);
+                                    try {
+                                      await store.cancelSale(sale);
+                                      if (!context.mounted) return;
+                                      final messenger = ScaffoldMessenger.of(
+                                        context,
+                                      );
+                                      context.pop();
+                                      messenger.showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            store.dataError == null
+                                                ? 'Venta cancelada en el servidor.'
+                                                : 'La venta se canceló, pero no se pudo actualizar la información: ${store.dataError}',
+                                          ),
+                                        ),
+                                      );
+                                    } on ApiException catch (error) {
+                                      if (!context.mounted) return;
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        SnackBar(content: Text(error.message)),
+                                      );
+                                    }
+                                  },
+                                  child: const Text('Cancelar venta'),
+                                ),
+                              ],
+                            ),
+                      ),
+              icon: const Icon(Icons.block_rounded, color: AppColors.red),
+              label: const Text(
+                'Cancelar venta',
+                style: TextStyle(color: AppColors.red),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -3661,6 +3674,8 @@ class RecordsScreen extends StatelessWidget {
                       record.kind == 'Gasto'
                           ? '${record.detail.split('·').first} · Importe restringido'
                           : record.detail,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -3921,7 +3936,7 @@ class ModuleScreen extends StatelessWidget {
     }
     return Scaffold(
       appBar: AppBar(title: Text(titles[slug] ?? 'Módulo')),
-      body: _moduleBody(context),
+      body: SafeArea(bottom: true, child: _moduleBody(context)),
     );
   }
 
@@ -4068,6 +4083,8 @@ class _ExpensesModule extends StatelessWidget {
                     title: Text(record.title),
                     subtitle: Text(
                       '${shortDate.format(record.date)} · ${record.detail}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
                     trailing: Text(money.format(record.value ?? 0)),
                   ),
@@ -5606,59 +5623,68 @@ Future<void> _editCompany(
   final address = TextEditingController(text: '${company['direccion'] ?? ''}');
   final confirmed = await showDialog<bool>(
     context: context,
+    useSafeArea: true,
     builder:
         (dialogContext) => AlertDialog(
           title: const Text('Editar empresa'),
-          content: SingleChildScrollView(
-            child: Form(
-              key: formKey,
-              autovalidateMode: AutovalidateMode.onUserInteraction,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextFormField(
-                    controller: name,
-                    decoration: const InputDecoration(
-                      labelText: 'Nombre comercial',
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 20,
+            vertical: 24,
+          ),
+          content: SizedBox(
+            width: 480,
+            child: SingleChildScrollView(
+              child: Form(
+                key: formKey,
+                autovalidateMode: AutovalidateMode.onUserInteraction,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextFormField(
+                      controller: name,
+                      decoration: const InputDecoration(
+                        labelText: 'Nombre comercial',
+                      ),
+                      validator:
+                          (value) =>
+                              (value ?? '').trim().length < 3
+                                  ? 'Escribe al menos 3 caracteres.'
+                                  : null,
                     ),
-                    validator:
-                        (value) =>
-                            (value ?? '').trim().length < 3
-                                ? 'Escribe al menos 3 caracteres.'
-                                : null,
-                  ),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: legalName,
-                    decoration: const InputDecoration(
-                      labelText: 'Razón social',
+                    const SizedBox(height: 20),
+                    TextFormField(
+                      controller: legalName,
+                      decoration: const InputDecoration(
+                        labelText: 'Razón social',
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: email,
-                    keyboardType: TextInputType.emailAddress,
-                    decoration: const InputDecoration(labelText: 'Correo'),
-                    validator:
-                        (value) => validateEmailAddress(value, required: true),
-                  ),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: phone,
-                    keyboardType: TextInputType.phone,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    maxLength: 10,
-                    decoration: const InputDecoration(
-                      labelText: 'Teléfono (opcional)',
+                    const SizedBox(height: 20),
+                    TextFormField(
+                      controller: email,
+                      keyboardType: TextInputType.emailAddress,
+                      decoration: const InputDecoration(labelText: 'Correo'),
+                      validator:
+                          (value) =>
+                              validateEmailAddress(value, required: true),
                     ),
-                    validator: validatePhoneNumber,
-                  ),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: address,
-                    decoration: const InputDecoration(labelText: 'Dirección'),
-                  ),
-                ],
+                    const SizedBox(height: 20),
+                    TextFormField(
+                      controller: phone,
+                      keyboardType: TextInputType.phone,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      maxLength: 10,
+                      decoration: const InputDecoration(
+                        labelText: 'Teléfono (opcional)',
+                      ),
+                      validator: validatePhoneNumber,
+                    ),
+                    const SizedBox(height: 20),
+                    TextFormField(
+                      controller: address,
+                      decoration: const InputDecoration(labelText: 'Dirección'),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

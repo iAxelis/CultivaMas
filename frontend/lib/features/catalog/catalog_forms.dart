@@ -625,38 +625,45 @@ class _CatalogFormScreenState extends State<CatalogFormScreen> {
         ),
       ),
       const SizedBox(height: 20),
-      Row(
-        children: [
-          Expanded(
-            child: FieldBlock(
-              label: 'Teléfono',
-              help: 'Opcional.',
-              child: TextFormField(
-                controller: phone,
-                keyboardType: TextInputType.phone,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                maxLength: 10,
-                decoration: const InputDecoration(hintText: '9515550142'),
-                validator: validatePhoneNumber,
-              ),
+      LayoutBuilder(
+        builder: (context, constraints) {
+          final phoneField = FieldBlock(
+            label: 'Teléfono',
+            help: 'Opcional.',
+            child: TextFormField(
+              controller: phone,
+              keyboardType: TextInputType.phone,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              maxLength: 10,
+              decoration: const InputDecoration(hintText: '9515550142'),
+              validator: validatePhoneNumber,
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: FieldBlock(
-              label: 'Correo',
-              help: 'Opcional.',
-              child: TextFormField(
-                controller: email,
-                keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(
-                  hintText: 'correo@empresa.mx',
-                ),
-                validator: validateEmailAddress,
-              ),
+          );
+          final emailField = FieldBlock(
+            label: 'Correo',
+            help: 'Opcional.',
+            child: TextFormField(
+              controller: email,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(hintText: 'correo@empresa.mx'),
+              validator: validateEmailAddress,
             ),
-          ),
-        ],
+          );
+          if (constraints.maxWidth < 460) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [phoneField, const SizedBox(height: 16), emailField],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: phoneField),
+              const SizedBox(width: 12),
+              Expanded(child: emailField),
+            ],
+          );
+        },
       ),
       const SizedBox(height: 20),
       if (widget.type == 'client')

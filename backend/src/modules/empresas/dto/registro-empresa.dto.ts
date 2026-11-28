@@ -8,6 +8,7 @@ import {
   MinLength,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsTelefono10Digitos } from '../../../common/decorators/is-telefono-10-digitos.decorator';
 
 export enum PlanCodigoEnum {
   BASICO = 'BASICO',
@@ -85,6 +86,7 @@ export class RegistroEmpresaDto {
   @IsString({
     message: 'El teléfono debe ser un texto con números válidos',
   })
+  @IsTelefono10Digitos()
   telefono?: string;
 
   @ApiPropertyOptional({
@@ -186,5 +188,6 @@ export class RegistroEmpresaDto {
   @IsString({
     message: 'El teléfono móvil debe ser un texto válido',
   })
+  @IsTelefono10Digitos()
   usuarioTelefono?: string;
 }

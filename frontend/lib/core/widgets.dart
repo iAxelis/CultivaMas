@@ -42,7 +42,7 @@ class AppGlyph extends StatelessWidget {
     final icon = switch (type) {
       AppGlyphType.dashboard => Icons.dashboard_outlined,
       AppGlyphType.sprout => Icons.eco_outlined,
-      AppGlyphType.add => Icons.add_circle_outline_rounded,
+      AppGlyphType.add => Icons.add_rounded,
       AppGlyphType.more => Icons.more_horiz_rounded,
       AppGlyphType.records => Icons.receipt_long_outlined,
       AppGlyphType.sales => Icons.storefront_rounded,
@@ -230,12 +230,16 @@ class StatTile extends StatelessWidget {
             const SizedBox(height: 4),
             AnimatedSwitcher(
               duration: const Duration(milliseconds: 250),
-              child: Text(
-                value,
-                key: ValueKey(value),
-                style: Theme.of(
-                  context,
-                ).textTheme.headlineSmall?.copyWith(fontSize: 22),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  value,
+                  key: ValueKey(value),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.headlineSmall?.copyWith(fontSize: 22),
+                ),
               ),
             ),
             if (note != null) ...[
@@ -291,11 +295,15 @@ class HeroCard extends StatelessWidget {
                   ).textTheme.labelMedium?.copyWith(color: Colors.white70),
                 ),
                 const SizedBox(height: 8),
-                Text(
-                  value,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.displaySmall?.copyWith(color: Colors.white),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    value,
+                    style: Theme.of(
+                      context,
+                    ).textTheme.displaySmall?.copyWith(color: Colors.white),
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(subtitle, style: const TextStyle(color: Colors.white70)),
@@ -445,7 +453,7 @@ class DatePickerField extends StatelessWidget {
   }
 }
 
-class EmptyState extends StatefulWidget {
+class EmptyState extends StatelessWidget {
   const EmptyState({
     required this.title,
     required this.message,
@@ -460,25 +468,7 @@ class EmptyState extends StatefulWidget {
   final VoidCallback onAction;
 
   @override
-  State<EmptyState> createState() => _EmptyStateState();
-}
-
-class _EmptyStateState extends State<EmptyState> {
-  bool _dismissed = false;
-
-  @override
-  void didUpdateWidget(covariant EmptyState oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.title != widget.title ||
-        oldWidget.message != widget.message ||
-        oldWidget.actionLabel != widget.actionLabel) {
-      _dismissed = false;
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
-    if (_dismissed) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.all(32),
       child: Column(
@@ -496,19 +486,13 @@ class _EmptyStateState extends State<EmptyState> {
             ),
           ),
           const SizedBox(height: 16),
-          Text(widget.title, style: Theme.of(context).textTheme.titleLarge),
+          Text(title, style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 8),
-          Text(widget.message, textAlign: TextAlign.center),
-          const SizedBox(height: 20),
-          FilledButton(
-            onPressed: () {
-              widget.onAction();
-              if (widget.actionLabel == 'Entendido') {
-                setState(() => _dismissed = true);
-              }
-            },
-            child: Text(widget.actionLabel),
-          ),
+          Text(message, textAlign: TextAlign.center),
+          if (actionLabel != 'Entendido') ...[
+            const SizedBox(height: 20),
+            FilledButton(onPressed: onAction, child: Text(actionLabel)),
+          ],
         ],
       ),
     );

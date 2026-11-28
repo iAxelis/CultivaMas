@@ -76,7 +76,7 @@ class _RecordEditSheetState extends State<_RecordEditSheet> {
       text: _valueText(_source['costoUnitario']),
     );
     _taxController = TextEditingController(
-      text: _valueText(_source['impuesto'] ?? '0'),
+      text: _nonZeroValueText(_source['impuesto']),
     );
     _date = widget.record.date;
   }
@@ -140,9 +140,9 @@ class _RecordEditSheetState extends State<_RecordEditSheet> {
                 ],
                 const SizedBox(height: 12),
                 const InfoBanner(
-                  title: 'Cambios guardados en la cuenta',
+                  title: 'Antes de guardar',
                   text:
-                      'El servidor valida permisos, antigüedad del registro y estado del ciclo antes de guardar.',
+                      'Al guardar, el servidor verificará tus permisos, la antigüedad del registro y el estado del ciclo.',
                   tone: AppColors.blue,
                   icon: Icons.sync_rounded,
                 ),
@@ -373,6 +373,11 @@ class _RecordEditSheetState extends State<_RecordEditSheet> {
       double.parse(controller.text.replaceAll(',', '.'));
 
   String _valueText(Object? value) => value?.toString() ?? '';
+
+  String _nonZeroValueText(Object? value) {
+    final text = _valueText(value);
+    return double.tryParse(text.replaceAll(',', '.')) == 0 ? '' : text;
+  }
 }
 
 Future<void> showRecordAttachmentsSheet(

@@ -28,6 +28,10 @@ class DataFormScreen extends StatefulWidget {
   State<DataFormScreen> createState() => _DataFormScreenState();
 }
 
+void _clearZeroOnTap(TextEditingController controller) {
+  if (parseDecimal(controller.text) == 0) controller.clear();
+}
+
 class _DataFormScreenState extends State<DataFormScreen> {
   final formKey = GlobalKey<FormState>();
   final quantityController = TextEditingController();
@@ -393,6 +397,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
       ),
       body: Form(
         key: formKey,
+        autovalidateMode: AutovalidateMode.onUserInteraction,
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
@@ -760,6 +765,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         child: TextFormField(
           controller: detailController,
           maxLines: 3,
+          maxLength: 500,
           decoration: const InputDecoration(
             hintText: 'Escribe una observación',
           ),
@@ -905,6 +911,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         child: TextFormField(
           controller: detailController,
           maxLines: 2,
+          maxLength: 500,
           decoration: const InputDecoration(hintText: 'Concepto del gasto'),
         ),
       ),
@@ -941,6 +948,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         help: 'Importe total de impuestos.',
         child: TextFormField(
           controller: taxController,
+          onTap: () => _clearZeroOnTap(taxController),
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           validator:
               (value) => _optionalNonNegativeNumberError(value, 'El impuesto'),
@@ -975,7 +983,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
       FieldBlock(
         label: 'Número de comprobante',
         help: 'Opcional, máximo 60 caracteres.',
-        child: TextFormField(controller: referenceController),
+        child: TextFormField(controller: referenceController, maxLength: 60),
       ),
     ];
   }
@@ -1059,6 +1067,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         child: TextFormField(
           controller: detailController,
           maxLines: 2,
+          maxLength: 500,
           decoration: const InputDecoration(hintText: 'Notas de calidad'),
         ),
       ),
@@ -1184,6 +1193,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         child: TextFormField(
           controller: detailController,
           maxLines: 2,
+          maxLength: 500,
           decoration: const InputDecoration(hintText: 'Notas de la merma'),
         ),
       ),
@@ -1306,6 +1316,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
           help: 'No puede superar el subtotal.',
           child: TextFormField(
             controller: discountController,
+            onTap: () => _clearZeroOnTap(discountController),
             onChanged: (_) => setState(() {}),
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             validator: (value) {
@@ -1330,6 +1341,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
           help: 'Impuesto total trasladado.',
           child: TextFormField(
             controller: saleTaxController,
+            onTap: () => _clearZeroOnTap(saleTaxController),
             onChanged: (_) => setState(() {}),
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             validator:
@@ -1410,6 +1422,9 @@ class _DataFormScreenState extends State<DataFormScreen> {
               _fieldPair(
                 TextFormField(
                   controller: quantityController,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
+                  ],
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
@@ -1467,6 +1482,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         child: TextFormField(
           controller: detailController,
           maxLines: 2,
+          maxLength: 500,
           decoration: const InputDecoration(
             hintText: 'Condiciones de la venta',
           ),
@@ -1614,7 +1630,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
       FieldBlock(
         label: 'Nombre del ciclo',
         help: 'Opcional.',
-        child: TextFormField(controller: cycleNameController),
+        child: TextFormField(controller: cycleNameController, maxLength: 100),
       ),
       const SizedBox(height: 20),
       _dateField(
@@ -1666,6 +1682,7 @@ class _DataFormScreenState extends State<DataFormScreen> {
         help: 'Opcional.',
         child: TextFormField(
           maxLines: 3,
+          maxLength: 500,
           decoration: const InputDecoration(hintText: 'Notas del ciclo'),
         ),
       ),

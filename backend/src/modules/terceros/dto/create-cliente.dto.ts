@@ -8,6 +8,7 @@ import {
   IsString,
   MaxLength,
 } from 'class-validator';
+import { IsTelefono10Digitos } from '../../../common/decorators/is-telefono-10-digitos.decorator';
 
 export class CreateClienteDto {
   @ApiProperty({
@@ -38,6 +39,7 @@ export class CreateClienteDto {
   })
   @IsOptional()
   @IsString({ message: 'El teléfono debe ser una cadena de texto' })
+  @IsTelefono10Digitos()
   @MaxLength(30, { message: 'El teléfono no puede exceder 30 caracteres' })
   telefono?: string;
 

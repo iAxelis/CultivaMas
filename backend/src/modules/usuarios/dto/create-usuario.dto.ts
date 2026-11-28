@@ -8,6 +8,7 @@ import {
   MinLength,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsTelefono10Digitos } from '../../../common/decorators/is-telefono-10-digitos.decorator';
 
 export enum RolCodigoEnum {
   ADMIN = 'ADMIN',
@@ -69,5 +70,6 @@ export class CreateUsuarioDto {
   })
   @IsOptional()
   @IsString({ message: 'El teléfono debe ser una cadena de texto' })
+  @IsTelefono10Digitos()
   telefono?: string;
 }

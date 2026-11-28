@@ -1,5 +1,6 @@
 import { IsEmail, IsOptional, IsString, Length } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { IsTelefono10Digitos } from '../../../common/decorators/is-telefono-10-digitos.decorator';
 
 export class UpdateEmpresaDto {
   @ApiPropertyOptional({ example: 'Rancho Los Pinos SPR de RL' })
@@ -26,6 +27,7 @@ export class UpdateEmpresaDto {
   @ApiPropertyOptional({ example: '9515550101' })
   @IsOptional()
   @IsString({ message: 'El teléfono debe ser una cadena de texto' })
+  @IsTelefono10Digitos()
   telefono?: string;
 
   @ApiPropertyOptional({ example: 'Camino a la Presa Km 2, Zimatlán, Oaxaca' })
